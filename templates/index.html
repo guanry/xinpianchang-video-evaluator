@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="never">
+<title>新片场视频评价平台</title>
+<style>
+  :root {
+    --bg: #f5f5f7;
+    --card-bg: #fff;
+    --text: #1d1d1f;
+    --text-sec: #86868b;
+    --accent: #0071e3;
+    --accent-hover: #0077ed;
+    --border: #e5e5e7;
+    --shadow: 0 2px 12px rgba(0,0,0,0.06);
+    --bar-bg: #f0f0f2;
+    --bar-fill: #0071e3;
+    --gold: #f5a623;
+    --tag-bg: #f0f4ff;
+    --tag-text: #0071e3;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+
+  /* Header */
+  .header { background:#fff; border-bottom:1px solid var(--border); padding:20px 0; position:sticky; top:0; z-index:100; backdrop-filter:blur(20px); background:rgba(255,255,255,0.85); }
+  .header-inner { max-width:1400px; margin:0 auto; padding:0 24px; display:flex; align-items:center; gap:20px; flex-wrap:wrap; }
+  .logo { font-size:22px; font-weight:700; white-space:nowrap; }
+  .logo span { color:var(--accent); }
+  .search-form { display:flex; gap:10px; flex:1; flex-wrap:wrap; align-items:center; }
+  .search-input { flex:1; min-width:200px; padding:10px 16px; border:2px solid var(--border); border-radius:12px; font-size:15px; outline:none; transition:border-color .2s; }
+  .search-input:focus { border-color:var(--accent); }
+  .input-sm { width:120px; padding:10px 12px; border:2px solid var(--border); border-radius:12px; font-size:14px; outline:none; transition:border-color .2s; }
+  .input-sm:focus { border-color:var(--accent); }
+  .btn { padding:10px 28px; background:var(--accent); color:#fff; border:none; border-radius:12px; font-size:15px; font-weight:600; cursor:pointer; transition:all .2s; white-space:nowrap; }
+  .btn:hover { background:var(--accent-hover); transform:translateY(-1px); }
+  .btn:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
+
+  /* Stats bar */
+  .stats-bar { max-width:1400px; margin:0 auto; padding:16px 24px; display:flex; gap:20px; align-items:center; font-size:14px; color:var(--text-sec); }
+  .stats-bar strong { color:var(--text); }
+
+  /* Grid */
+  .grid { max-width:1400px; margin:0 auto; padding:0 24px 60px; display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:20px; }
+
+  /* Card */
+  .card { background:var(--card-bg); border-radius:16px; overflow:hidden; box-shadow:var(--shadow); transition:transform .2s, box-shadow .2s; display:flex; flex-direction:column; }
+  .card:hover { transform:translateY(-4px); box-shadow:0 8px 30px rgba(0,0,0,0.1); }
+  .card-cover { position:relative; aspect-ratio:16/9; background:#e5e5e7; overflow:hidden; }
+  .card-cover img { width:100%; height:100%; object-fit:cover; display:block; }
+  .card-duration { position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.75); color:#fff; padding:2px 8px; border-radius:6px; font-size:12px; }
+  .card-body { padding:16px; display:flex; flex-direction:column; gap:10px; flex:1; }
+  .card-title { font-size:15px; font-weight:600; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .card-meta { font-size:12px; color:var(--text-sec); display:flex; gap:8px; flex-wrap:wrap; }
+  .card-meta span { background:#f5f5f7; padding:2px 8px; border-radius:4px; }
+
+  /* Score bars */
+  .scores { display:flex; flex-direction:column; gap:6px; }
+  .score-row { display:flex; align-items:center; gap:8px; font-size:13px; }
+  .score-label { width:55px; flex-shrink:0; color:var(--text-sec); text-align:right; }
+  .score-bar-wrap { flex:1; height:6px; background:var(--bar-bg); border-radius:3px; overflow:hidden; }
+  .score-bar { height:100%; border-radius:3px; transition:width .4s ease; }
+  .score-val { width:28px; font-weight:600; font-size:12px; text-align:center; }
+
+  /* Color palette for bars */
+  .bar-high { background:linear-gradient(90deg, #34c759, #30d158); }
+  .bar-mid { background:linear-gradient(90deg, #ff9f0a, #ffb340); }
+  .bar-low { background:linear-gradient(90deg, #ff3b30, #ff6259); }
+
+  .overall-badge { width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:700; color:#fff; flex-shrink:0; }
+  .overall-high { background:linear-gradient(135deg, #34c759, #30b94e); }
+  .overall-mid { background:linear-gradient(135deg, #ff9f0a, #f5a623); }
+  .overall-low { background:linear-gradient(135deg, #ff3b30, #e0443e); }
+
+  .score-header { display:flex; align-items:center; gap:12px; }
+
+  .summary { font-size:13px; color:#555; line-height:1.5; font-style:italic; padding:8px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+
+  .tags { display:flex; gap:6px; flex-wrap:wrap; }
+  .tag { font-size:11px; padding:3px 10px; background:var(--tag-bg); color:var(--tag-text); border-radius:20px; white-space:nowrap; }
+
+  /* Empty / Error */
+  .empty { text-align:center; padding:80px 20px; color:var(--text-sec); }
+  .empty .icon { font-size:48px; margin-bottom:16px; }
+
+  /* Loading */
+  .loading { text-align:center; padding:80px 20px; }
+  .spinner { width:40px; height:40px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 16px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* Responsive */
+  @media (max-width:640px) {
+    .header-inner { flex-direction:column; align-items:stretch; }
+    .search-form { flex-direction:column; }
+    .input-sm { width:100%; }
+    .grid { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="logo">新片场<span>评价</span></div>
+    <form class="search-form" id="searchForm">
+      <input class="search-input" id="kw" placeholder="搜索关键词，如：华为、波司登、汽车广告..." required>
+      <input class="input-sm" id="industry" placeholder="行业，如：3C">
+      <input class="input-sm" id="style" placeholder="风格，如：温情">
+      <button class="btn" type="submit">搜索评价</button>
+    </form>
+  </div>
+</div>
+
+<div class="stats-bar" id="statsBar" style="display:none;"></div>
+<div class="grid" id="grid"></div>
+<div class="empty" id="empty">
+  <div class="icon">🔍</div>
+  <div>输入关键词，搜索新片场视频并获取广告创意评价</div>
+</div>
+
+<script>
+function barClass(score) {
+  if (score >= 8) return 'bar-high';
+  if (score >= 6) return 'bar-mid';
+  return 'bar-low';
+}
+function badgeClass(score) {
+  if (score >= 8) return 'overall-high';
+  if (score >= 6) return 'overall-mid';
+  return 'overall-low';
+}
+
+function buildScoreRow(label, score) {
+  return `<div class="score-row">
+    <span class="score-label">${label}</span>
+    <div class="score-bar-wrap"><div class="score-bar ${barClass(score)}" style="width:${score*10}%"></div></div>
+    <span class="score-val">${score}</span>
+  </div>`;
+}
+
+function buildCard(v) {
+  const s = v.scores;
+  const cover = v.cover ? v.cover + '?x-oss-process=image/resize,w_640' : '';
+  const mins = Math.floor(v.duration/60);
+  const secs = v.duration%60;
+  const cat = v.categories && v.categories.length > 0
+    ? (v.categories[0].sub || v.categories[0].main || '')
+    : '';
+  const views = v.stats.views > 10000 ? (v.stats.views/10000).toFixed(1)+'万' : v.stats.views;
+
+  return `<div class="card">
+    <a class="card-cover" href="${v.web_url || '#'}" target="_blank">
+      <img src="${cover}" alt="${v.title}" loading="lazy" onerror="this.parentElement.style.display='none'">
+      <span class="card-duration">${mins}:${String(secs).padStart(2,'0')}</span>
+    </a>
+    <div class="card-body">
+      <div class="card-title" title="${v.title}">${v.title}</div>
+      <div class="card-meta">
+        <span>👁 ${views}</span>
+        <span>👍 ${v.stats.likes}</span>
+        <span>⭐ ${v.stats.collects}</span>
+        ${cat ? '<span>'+cat+'</span>' : ''}
+      </div>
+      <div class="score-header">
+        <div class="overall-badge ${badgeClass(s.overall)}">${s.overall}</div>
+        <span style="font-size:14px;font-weight:600;">综合评分</span>
+      </div>
+      <div class="scores">
+        ${buildScoreRow('创意', s.creativity)}
+        ${buildScoreRow('制作', s.production_quality)}
+        ${buildScoreRow('行业匹配', s.industry_match)}
+        ${buildScoreRow('节奏', s.pacing)}
+        ${buildScoreRow('互动', s.engagement)}
+      </div>
+      <div class="summary">💬 ${v.summary}</div>
+      <div class="tags">${(v.key_elements||[]).map(t=>'<span class="tag">'+t+'</span>').join('')}</div>
+    </div>
+  </div>`;
+}
+
+document.getElementById('searchForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const kw = document.getElementById('kw').value.trim();
+  const industry = document.getElementById('industry').value.trim();
+  const style = document.getElementById('style').value.trim();
+  if (!kw) return;
+
+  const grid = document.getElementById('grid');
+  const empty = document.getElementById('empty');
+  const stats = document.getElementById('statsBar');
+  const btn = this.querySelector('button');
+
+  grid.innerHTML = '<div class="loading"><div class="spinner"></div><div>正在搜索并评价…</div></div>';
+  empty.style.display = 'none';
+  btn.disabled = true;
+
+  try {
+    const params = new URLSearchParams({ kw, industry, style });
+    const resp = await fetch('/api/search?' + params);
+    const data = await resp.json();
+
+    if (data.error) {
+      grid.innerHTML = `<div class="empty"><div class="icon">⚠️</div><div>${data.error}</div></div>`;
+      stats.style.display = 'none';
+    } else {
+      stats.style.display = 'flex';
+      const llmTag = data.llm_enabled
+        ? '<span style=\"background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:4px;font-size:12px;margin-left:8px;\">AI评价</span>'
+        : '<span style=\"background:#fff3e0;color:#e65100;padding:2px 8px;border-radius:4px;font-size:12px;margin-left:8px;\">本地评价</span>';
+      stats.innerHTML = `找到 <strong>${data.total}</strong> 条结果，展示前 <strong>${data.count}</strong> 条 | 行业: <strong>${industry||'不限'}</strong> | 风格: <strong>${style||'不限'}</strong> ${llmTag}`;
+      grid.innerHTML = data.videos.map(buildCard).join('');
+    }
+  } catch(err) {
+    grid.innerHTML = `<div class="empty"><div class="icon">❌</div><div>请求失败: ${err.message}</div></div>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

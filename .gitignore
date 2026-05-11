@@ -1,0 +1,29 @@
+# 环境变量（包含 API Key）
+.env
+.env.bak
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 运行时数据库
+data.db
+
+# 调试/临时文件
+llm_debug.log
+REQ_DEBUG.txt
+page_dump.html
+search_test_result.txt
+video_summary.txt
+1.txt
+bosideng_video.txt
+video_data.json
+video_data_full.json
+
+# Claude local config
+.claude/
+
+# IDE
+.vscode/
+.idea/
