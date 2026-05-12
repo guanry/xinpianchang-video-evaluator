@@ -4,178 +4,285 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="referrer" content="never">
-<title>新片场视频评价平台</title>
+<title>新片场视频 AI 评价平台 - 媒体广告决策专家</title>
 <style>
   :root {
-    --bg: #f5f5f7;
-    --card-bg: #fff;
-    --text: #1d1d1f;
-    --text-sec: #86868b;
-    --accent: #0071e3;
-    --accent-hover: #0077ed;
-    --border: #e5e5e7;
-    --shadow: 0 2px 12px rgba(0,0,0,0.06);
-    --bar-bg: #f0f0f2;
-    --bar-fill: #0071e3;
-    --gold: #f5a623;
-    --tag-bg: #f0f4ff;
-    --tag-text: #0071e3;
+    --bg-color: #fbfbfd;
+    --card-bg: rgba(255, 255, 255, 0.8);
+    --primary: #0071e3;
+    --primary-gradient: linear-gradient(135deg, #0071e3, #40a9ff);
+    --text-main: #1d1d1f;
+    --text-sec: #6e6e73;
+    --accent-green: #34c759;
+    --accent-orange: #ff9500;
+    --accent-red: #ff3b30;
+    --glass: rgba(255, 255, 255, 0.7);
+    --shadow-soft: 0 8px 30px rgba(0,0,0,0.04);
+    --shadow-hover: 0 20px 40px rgba(0,0,0,0.1);
   }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
 
-  /* Header */
-  .header { background:#fff; border-bottom:1px solid var(--border); padding:20px 0; position:sticky; top:0; z-index:100; backdrop-filter:blur(20px); background:rgba(255,255,255,0.85); }
-  .header-inner { max-width:1400px; margin:0 auto; padding:0 24px; display:flex; align-items:center; gap:20px; flex-wrap:wrap; }
-  .logo { font-size:22px; font-weight:700; white-space:nowrap; }
-  .logo span { color:var(--accent); }
-  .search-form { display:flex; gap:10px; flex:1; flex-wrap:wrap; align-items:center; }
-  .search-input { flex:1; min-width:200px; padding:10px 16px; border:2px solid var(--border); border-radius:12px; font-size:15px; outline:none; transition:border-color .2s; }
-  .search-input:focus { border-color:var(--accent); }
-  .input-sm { width:120px; padding:10px 12px; border:2px solid var(--border); border-radius:12px; font-size:14px; outline:none; transition:border-color .2s; }
-  .input-sm:focus { border-color:var(--accent); }
-  .btn { padding:10px 28px; background:var(--accent); color:#fff; border:none; border-radius:12px; font-size:15px; font-weight:600; cursor:pointer; transition:all .2s; white-space:nowrap; }
-  .btn:hover { background:var(--accent-hover); transform:translateY(-1px); }
-  .btn:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-font-smoothing: antialiased; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif; background:var(--bg-color); color:var(--text-main); line-height: 1.5; overflow-x: hidden; }
 
-  /* Stats bar */
-  .stats-bar { max-width:1400px; margin:0 auto; padding:16px 24px; display:flex; gap:20px; align-items:center; font-size:14px; color:var(--text-sec); }
-  .stats-bar strong { color:var(--text); }
+  /* Hero Section */
+  .hero {
+    padding: 80px 24px 40px;
+    background: radial-gradient(circle at top right, #e3f2fd, transparent),
+                radial-gradient(circle at bottom left, #f3e5f5, transparent);
+    text-align: center;
+    position: relative;
+  }
+  .hero-title {
+    font-size: 48px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 12px;
+    background: linear-gradient(to bottom, #1d1d1f, #434343);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .hero-sub {
+    font-size: 19px;
+    color: var(--text-sec);
+    margin-bottom: 40px;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+  }
 
-  /* Grid */
-  .grid { max-width:1400px; margin:0 auto; padding:0 24px 60px; display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:20px; }
+  /* Search Container - Glassmorphism */
+  .search-container {
+    max-width: 900px;
+    margin: 0 auto;
+    background: var(--glass);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    padding: 24px;
+    border-radius: 24px;
+    border: 1px solid rgba(255,255,255,0.4);
+    box-shadow: var(--shadow-soft);
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    transition: transform 0.3s ease;
+  }
+  .search-container:focus-within {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-hover);
+  }
 
-  /* Card */
-  .card { background:var(--card-bg); border-radius:16px; overflow:hidden; box-shadow:var(--shadow); transition:transform .2s, box-shadow .2s; display:flex; flex-direction:column; }
-  .card:hover { transform:translateY(-4px); box-shadow:0 8px 30px rgba(0,0,0,0.1); }
-  .card-cover { position:relative; aspect-ratio:16/9; background:#e5e5e7; overflow:hidden; }
-  .card-cover img { width:100%; height:100%; object-fit:cover; display:block; }
-  .card-duration { position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.75); color:#fff; padding:2px 8px; border-radius:6px; font-size:12px; }
-  .card-body { padding:16px; display:flex; flex-direction:column; gap:10px; flex:1; }
-  .card-title { font-size:15px; font-weight:600; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-  .card-meta { font-size:12px; color:var(--text-sec); display:flex; gap:8px; flex-wrap:wrap; }
-  .card-meta span { background:#f5f5f7; padding:2px 8px; border-radius:4px; }
+  .input-group { flex: 1; min-width: 200px; position: relative; }
+  .input-group label {
+    position: absolute; top: -20px; left: 12px; font-size: 11px; font-weight: 600; color: var(--text-sec); text-transform: uppercase;
+  }
+  .search-input {
+    width: 100%; padding: 14px 20px; background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.1); border-radius: 14px;
+    font-size: 16px; outline: none; transition: all 0.2s;
+  }
+  .search-input:focus { border-color: var(--primary); background: #fff; }
 
-  /* Score bars */
-  .scores { display:flex; flex-direction:column; gap:6px; }
-  .score-row { display:flex; align-items:center; gap:8px; font-size:13px; }
-  .score-label { width:55px; flex-shrink:0; color:var(--text-sec); text-align:right; }
-  .score-bar-wrap { flex:1; height:6px; background:var(--bar-bg); border-radius:3px; overflow:hidden; }
-  .score-bar { height:100%; border-radius:3px; transition:width .4s ease; }
-  .score-val { width:28px; font-weight:600; font-size:12px; text-align:center; }
+  .btn-search {
+    padding: 14px 40px; background: var(--primary-gradient); color: #fff; border: none; border-radius: 14px;
+    font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .btn-search:hover { transform: scale(1.02); filter: brightness(1.1); }
+  .btn-search:active { transform: scale(0.98); }
 
-  /* Color palette for bars */
-  .bar-high { background:linear-gradient(90deg, #34c759, #30d158); }
-  .bar-mid { background:linear-gradient(90deg, #ff9f0a, #ffb340); }
-  .bar-low { background:linear-gradient(90deg, #ff3b30, #ff6259); }
+  /* Stats Bar */
+  .stats-bar {
+    max-width: 1400px; margin: 24px auto; padding: 0 24px; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; color: var(--text-sec); gap: 16px;
+  }
+  .stats-chip { background: #fff; padding: 4px 12px; border-radius: 100px; border: 1px solid rgba(0,0,0,0.05); }
 
-  .overall-badge { width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:700; color:#fff; flex-shrink:0; }
-  .overall-high { background:linear-gradient(135deg, #34c759, #30b94e); }
-  .overall-mid { background:linear-gradient(135deg, #ff9f0a, #f5a623); }
-  .overall-low { background:linear-gradient(135deg, #ff3b30, #e0443e); }
+  /* Grid Layout */
+  .grid {
+    max-width: 1400px; margin: 0 auto; padding: 20px 24px 80px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 32px;
+  }
 
-  .score-header { display:flex; align-items:center; gap:12px; }
+  /* Video Card - Premium Look */
+  .card {
+    background: #fff; border-radius: 24px; overflow: hidden; box-shadow: var(--shadow-soft);
+    transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+    display: flex; flex-direction: column; border: 1px solid rgba(0,0,0,0.03);
+  }
+  .card:hover { transform: translateY(-8px); box-shadow: var(--shadow-hover); }
 
-  .summary { font-size:13px; color:#555; line-height:1.5; font-style:italic; padding:8px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+  .card-cover {
+    position: relative; aspect-ratio: 16/10; overflow: hidden; background: #eee;
+  }
+  .card-cover img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.6s ease; }
+  .card:hover .card-cover img { transform: scale(1.05); }
 
-  .tags { display:flex; gap:6px; flex-wrap:wrap; }
-  .tag { font-size:11px; padding:3px 10px; background:var(--tag-bg); color:var(--tag-text); border-radius:20px; white-space:nowrap; }
+  .card-badge {
+    position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,0.5); backdrop-filter: blur(10px);
+    color: #fff; padding: 4px 10px; border-radius: 8px; font-size: 11px; font-weight: 600;
+  }
+  .card-duration {
+    position: absolute; bottom: 12px; right: 12px; background: rgba(0,0,0,0.7); color: #fff;
+    padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 500;
+  }
 
-  /* Empty / Error */
-  .empty { text-align:center; padding:80px 20px; color:var(--text-sec); }
-  .empty .icon { font-size:48px; margin-bottom:16px; }
+  .card-content { padding: 24px; display: flex; flex-direction: column; gap: 16px; flex: 1; }
+  .card-title { font-size: 18px; font-weight: 700; line-height: 1.3; color: var(--text-main); min-height: 46px; }
 
-  /* Loading */
-  .loading { text-align:center; padding:80px 20px; }
-  .spinner { width:40px; height:40px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 16px; }
-  @keyframes spin { to { transform:rotate(360deg); } }
+  /* Scoring System UI */
+  .score-section { display: flex; align-items: flex-start; gap: 20px; margin: 4px 0; }
+  .overall-wrap { text-align: center; }
+  .overall-score {
+    width: 56px; height: 56px; border-radius: 18px; display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 800; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  .score-label-main { font-size: 10px; font-weight: 700; color: var(--text-sec); margin-top: 6px; text-transform: uppercase; }
 
-  /* Responsive */
-  @media (max-width:640px) {
-    .header-inner { flex-direction:column; align-items:stretch; }
-    .search-form { flex-direction:column; }
-    .input-sm { width:100%; }
-    .grid { grid-template-columns:1fr; }
+  .dimension-scores { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  .dim-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .dim-name { width: 50px; color: var(--text-sec); font-weight: 500; }
+  .dim-bar-bg { flex: 1; height: 5px; background: #f0f0f2; border-radius: 10px; overflow: hidden; }
+  .dim-bar-fill { height: 100%; border-radius: 10px; transition: width 1s ease-out; }
+
+  /* AI Summary Box */
+  .ai-box {
+    background: #f5f5f7; border-radius: 16px; padding: 14px; position: relative;
+    border-left: 4px solid var(--primary);
+  }
+  .ai-tag {
+    position: absolute; top: -10px; right: 12px; background: var(--primary-gradient); color: #fff;
+    padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 700; box-shadow: 0 2px 6px rgba(0,113,227,0.3);
+  }
+  .ai-summary { font-size: 13px; color: #333; line-height: 1.5; font-weight: 500; }
+
+  .tag-cloud { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .chip {
+    font-size: 11px; padding: 4px 12px; background: rgba(0,113,227,0.06); color: var(--primary);
+    border-radius: 100px; font-weight: 600; transition: all 0.2s;
+  }
+  .chip:hover { background: var(--primary); color: #fff; }
+
+  /* Loading State */
+  .loading-overlay { text-align: center; padding: 60px 0; }
+  .ai-loader {
+    width: 60px; height: 60px; border-radius: 50%; border: 3px solid #eee; border-top-color: var(--primary);
+    animation: rotate 1s infinite cubic-bezier(0.5, 0, 0.5, 1); margin: 0 auto 20px;
+  }
+  @keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  .empty-state { text-align: center; padding: 100px 24px; color: var(--text-sec); }
+  .empty-icon { font-size: 64px; margin-bottom: 24px; opacity: 0.5; }
+
+  /* Color Gradients */
+  .bg-high { background: linear-gradient(135deg, #28cd41, #34c759); }
+  .bg-mid { background: linear-gradient(135deg, #ff9500, #ffcc00); }
+  .bg-low { background: linear-gradient(135deg, #ff3b30, #ff6b6b); }
+
+  @media (max-width: 768px) {
+    .hero-title { font-size: 32px; }
+    .search-container { padding: 16px; flex-direction: column; }
+    .btn-search { width: 100%; }
+    .grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <div class="header-inner">
-    <div class="logo">新片场<span>评价</span></div>
-    <form class="search-form" id="searchForm">
-      <input class="search-input" id="kw" placeholder="搜索关键词，如：华为、波司登、汽车广告..." required>
-      <input class="input-sm" id="industry" placeholder="行业，如：3C">
-      <input class="input-sm" id="style" placeholder="风格，如：温情">
-      <button class="btn" type="submit">搜索评价</button>
-    </form>
-  </div>
+<div class="hero">
+  <h1 class="hero-title">新片场视频 AI 评价</h1>
+  <p class="hero-sub">基于 4A 公司创意标准，结合深度学习算法，为您的广告视频提供视网膜级的专业审美审计。</p>
+
+  <form class="search-container" id="searchForm">
+    <div class="input-group">
+      <label>视频关键词</label>
+      <input class="search-input" id="kw" placeholder="如：华为品牌广告、剧情短片..." required>
+    </div>
+    <div class="input-group" style="flex: 0 0 160px;">
+      <label>目标行业</label>
+      <input class="search-input" id="industry" placeholder="如：3C、美妆">
+    </div>
+    <div class="input-group" style="flex: 0 0 160px;">
+      <label>偏好风格</label>
+      <input class="search-input" id="style" placeholder="如：温情、硬核">
+    </div>
+    <button class="btn-search" type="submit">开始审计</button>
+  </form>
 </div>
 
 <div class="stats-bar" id="statsBar" style="display:none;"></div>
+
 <div class="grid" id="grid"></div>
-<div class="empty" id="empty">
-  <div class="icon">🔍</div>
-  <div>输入关键词，搜索新片场视频并获取广告创意评价</div>
+
+<div class="empty-state" id="emptyState">
+  <div class="empty-icon">💎</div>
+  <h3>准备好进行创意审计了吗？</h3>
+  <p>输入搜索词，让 AI 评委为您筛选最优质的视频案例。</p>
 </div>
 
 <script>
-function barClass(score) {
-  if (score >= 8) return 'bar-high';
-  if (score >= 6) return 'bar-mid';
-  return 'bar-low';
-}
-function badgeClass(score) {
-  if (score >= 8) return 'overall-high';
-  if (score >= 6) return 'overall-mid';
-  return 'overall-low';
+const colors = {
+  high: 'linear-gradient(90deg, #28cd41, #34c759)',
+  mid: 'linear-gradient(90deg, #ffb300, #ff9500)',
+  low: 'linear-gradient(90deg, #ff6b6b, #ff3b30)'
+};
+
+function getScoreClass(score) {
+  if (score >= 8.5) return 'bg-high';
+  if (score >= 6.5) return 'bg-mid';
+  return 'bg-low';
 }
 
-function buildScoreRow(label, score) {
-  return `<div class="score-row">
-    <span class="score-label">${label}</span>
-    <div class="score-bar-wrap"><div class="score-bar ${barClass(score)}" style="width:${score*10}%"></div></div>
-    <span class="score-val">${score}</span>
+function getBarStyle(score) {
+  let color = colors.low;
+  if (score >= 8.5) color = colors.high;
+  else if (score >= 6.5) color = colors.mid;
+  return `width: ${score*10}%; background: ${color}`;
+}
+
+function buildDimRow(name, score) {
+  return `<div class="dim-row">
+    <span class="dim-name">${name}</span>
+    <div class="dim-bar-bg"><div class="dim-bar-fill" style="${getBarStyle(score)}"></div></div>
+    <span style="width:24px; text-align:right; font-weight:700;">${score}</span>
   </div>`;
 }
 
 function buildCard(v) {
   const s = v.scores;
-  const cover = v.cover ? v.cover + '?x-oss-process=image/resize,w_640' : '';
+  const cover = v.cover ? v.cover + '?x-oss-process=image/resize,w_800' : '';
   const mins = Math.floor(v.duration/60);
   const secs = v.duration%60;
-  const cat = v.categories && v.categories.length > 0
-    ? (v.categories[0].sub || v.categories[0].main || '')
-    : '';
   const views = v.stats.views > 10000 ? (v.stats.views/10000).toFixed(1)+'万' : v.stats.views;
 
-  return `<div class="card">
+  return `
+  <div class="card">
     <a class="card-cover" href="${v.web_url || '#'}" target="_blank">
-      <img src="${cover}" alt="${v.title}" loading="lazy" onerror="this.parentElement.style.display='none'">
+      <img src="${cover}" alt="${v.title}" loading="lazy">
+      <span class="card-badge">👁 ${views}</span>
       <span class="card-duration">${mins}:${String(secs).padStart(2,'0')}</span>
     </a>
-    <div class="card-body">
-      <div class="card-title" title="${v.title}">${v.title}</div>
-      <div class="card-meta">
-        <span>👁 ${views}</span>
-        <span>👍 ${v.stats.likes}</span>
-        <span>⭐ ${v.stats.collects}</span>
-        ${cat ? '<span>'+cat+'</span>' : ''}
+    <div class="card-content">
+      <h3 class="card-title" title="${v.title}">${v.title}</h3>
+
+      <div class="score-section">
+        <div class="overall-wrap">
+          <div class="overall-score ${getScoreClass(s.overall)}">${s.overall}</div>
+          <div class="score-label-main">综合分</div>
+        </div>
+        <div class="dimension-scores">
+          ${buildDimRow('创意', s.creativity)}
+          ${buildDimRow('制作', s.production_quality)}
+          ${buildDimRow('行业', s.industry_match)}
+          ${buildDimRow('节奏', s.pacing)}
+        </div>
       </div>
-      <div class="score-header">
-        <div class="overall-badge ${badgeClass(s.overall)}">${s.overall}</div>
-        <span style="font-size:14px;font-weight:600;">综合评分</span>
+
+      <div class="ai-box">
+        <div class="ai-tag">AI 审计</div>
+        <div class="ai-summary">"${v.summary}"</div>
       </div>
-      <div class="scores">
-        ${buildScoreRow('创意', s.creativity)}
-        ${buildScoreRow('制作', s.production_quality)}
-        ${buildScoreRow('行业匹配', s.industry_match)}
-        ${buildScoreRow('节奏', s.pacing)}
-        ${buildScoreRow('互动', s.engagement)}
+
+      <div class="tag-cloud">
+        ${(v.key_elements||[]).map(t => `<span class="chip">${t}</span>`).join('')}
       </div>
-      <div class="summary">💬 ${v.summary}</div>
-      <div class="tags">${(v.key_elements||[]).map(t=>'<span class="tag">'+t+'</span>').join('')}</div>
     </div>
   </div>`;
 }
@@ -188,11 +295,16 @@ document.getElementById('searchForm').addEventListener('submit', async function(
   if (!kw) return;
 
   const grid = document.getElementById('grid');
-  const empty = document.getElementById('empty');
+  const empty = document.getElementById('emptyState');
   const stats = document.getElementById('statsBar');
   const btn = this.querySelector('button');
 
-  grid.innerHTML = '<div class="loading"><div class="spinner"></div><div>正在搜索并评价…</div></div>';
+  grid.innerHTML = `
+    <div class="loading-overlay" style="grid-column: 1/-1;">
+      <div class="ai-loader"></div>
+      <h3 style="margin-bottom:8px;">AI 评委正在审计中...</h3>
+      <p style="color:var(--text-sec);">正在评估视频的叙事结构、视听表现及行业契合度</p>
+    </div>`;
   empty.style.display = 'none';
   btn.disabled = true;
 
@@ -202,20 +314,22 @@ document.getElementById('searchForm').addEventListener('submit', async function(
     const data = await resp.json();
 
     if (data.error) {
-      grid.innerHTML = `<div class="empty"><div class="icon">⚠️</div><div>${data.error}</div></div>`;
+      grid.innerHTML = `<div class="empty-state" style="grid-column: 1/-1;"><div class="empty-icon">⚠️</div><h3>${data.error}</h3></div>`;
       stats.style.display = 'none';
     } else {
       stats.style.display = 'flex';
-      const llmTag = data.llm_enabled
-        ? '<span style=\"background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:4px;font-size:12px;margin-left:8px;\">AI评价</span>'
-        : '<span style=\"background:#fff3e0;color:#e65100;padding:2px 8px;border-radius:4px;font-size:12px;margin-left:8px;\">本地评价</span>';
-      stats.innerHTML = `找到 <strong>${data.total}</strong> 条结果，展示前 <strong>${data.count}</strong> 条 | 行业: <strong>${industry||'不限'}</strong> | 风格: <strong>${style||'不限'}</strong> ${llmTag}`;
+      stats.innerHTML = `
+        <span class="stats-chip">共 <strong>${data.total}</strong> 个案例</span>
+        <span class="stats-chip">分析前 <strong>${data.count}</strong> 条</span>
+        <span class="stats-chip">模型: <strong>${data.llm_enabled ? 'GPT-4 / Claude' : '启发式算法'}</strong></span>
+      `;
       grid.innerHTML = data.videos.map(buildCard).join('');
     }
   } catch(err) {
-    grid.innerHTML = `<div class="empty"><div class="icon">❌</div><div>请求失败: ${err.message}</div></div>`;
+    grid.innerHTML = `<div class="empty-state" style="grid-column: 1/-1;"><div class="empty-icon">❌</div><h3>审计失败</h3><p>${err.message}</p></div>`;
   } finally {
     btn.disabled = false;
+    window.scrollTo({ top: 400, behavior: 'smooth' });
   }
 });
 </script>

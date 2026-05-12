@@ -2,7 +2,7 @@
 """
 视频评价引擎：算法评分 + LLM 总结
 """
-import json, math, re
+import json, math, re, sys
 from typing import Optional
 
 
@@ -17,42 +17,70 @@ def _safe_ratio(numerator, denominator, default=0.5):
 
 
 def score_creativity(video: dict) -> float:
-    """创意表现力：内容深度 + 标签丰富度 + 是否有文案"""
+    """创意表现力：荣誉背书 + 内容深度 + 标签稀缺度"""
     score = 5.0
+    
+    # 1. 荣誉背书 (核心加成)
+    badge = video.get("badge", "")
+    if badge == "recommend":
+        score += 2.5  # 首页推荐
+    elif badge == "category_recommend":
+        score += 1.5  # 频道推荐
+    elif badge == "hot":
+        score += 1.0  # 热门
+        
+    # 2. 内容深度
     content = video.get("content", "") or ""
-    if len(content) > 50:
-        score += 1.5
-    if len(content) > 200:
+    if len(content) > 100:
         score += 1.0
-    tags = video.get("tags", [])
-    if len(tags) >= 3:
-        score += 1.0
+    if len(content) > 300:
+        score += 0.5
+        
+    # 3. 标签与荣誉关键字
+    tags = [t.get("name", "") for t in video.get("tags", [])]
+    honor_kws = ["获奖", "入围", "精选", "佳作", "原创"]
+    for t in tags:
+        if any(kw in t for kw in honor_kws):
+            score += 0.5
+            break
     if len(tags) >= 5:
         score += 0.5
-    badge = video.get("badge", "")
-    if badge in ("recommend", "category_recommend", "hot"):
-        score += 1.0
+        
     return min(10.0, score)
 
 
 def score_production_quality(video: dict) -> float:
-    """制作水准：画质 + 评分 + 是否有制作团队信息"""
+    """制作水准：创作者权威度 + 画质 + 平台评分"""
     score = 5.0
+    
+    # 1. 创作者权威度 (背书)
+    author = video.get("author", {})
+    if isinstance(author, dict):
+        userinfo = author.get("userinfo", {})
+        # VIP 等级加分 (最高1.5)
+        vip_level = userinfo.get("vip_flag", 0)
+        score += min(vip_level * 0.3, 1.5)
+        # 认证加分
+        if userinfo.get("verify_description"):
+            score += 1.0
+            
+    # 2. 画质表现 (最高1.5)
+    # quality 4: 4K, 3: 1080P, etc.
     quality = video.get("quality", 0)
-    score += quality * 0.75
+    score += min(quality * 0.4, 1.5)
+    
+    # 3. 平台历史评分 (活跃度与认可度)
     c = video.get("count", {})
     xpc_score = c.get("score", 0)
-    if xpc_score > 5000:
+    if xpc_score > 15000:
         score += 1.0
-    if xpc_score > 10000:
+    elif xpc_score > 5000:
         score += 0.5
-    badge = video.get("badge", "")
-    if badge in ("recommend", "category_recommend"):
-        score += 0.5
+        
     return min(10.0, score)
 
 
-# 行业关键词扩展词典
+# 行业关键词扩展词典 (保持不变)
 _INDUSTRY_ALIAS = {
     "3c": ["手机", "数码", "科技", "电子", "智能", "硬件", "电脑", "平板", "耳机"],
     "科技": ["手机", "数码", "电子", "智能", "互联网", "AI", "5G"],
@@ -88,75 +116,63 @@ def _expand_industry(industry: str) -> set:
 
 
 def score_industry_match(video: dict, industry: str = "") -> float:
-    """行业匹配度：分类 + 标签 + 内容关键词与目标行业的重合度"""
+    """行业匹配度：语义层级权重 (分类 > 标签 > 标题 > 内容)"""
     if not industry:
-        return 7.0
+        return 7.5  # 默认高分
     score = 5.0
     keywords = _expand_industry(industry)
 
-    # 检查分类名称
+    # 1. 检查分类 (权重最高: 3.5)
     categories = video.get("categories", [])
     cat_text = " ".join(
         c.get("category_name", "") + " " + c.get("sub", {}).get("category_name", "")
         for c in categories
     ).lower()
     hits_cat = sum(1 for kw in keywords if kw in cat_text)
-    score += min(hits_cat * 1.5, 3.0)
+    score += min(hits_cat * 2.0, 3.5)
 
-    # 检查标签
+    # 2. 检查标签 (权重: 2.0)
     tag_text = " ".join(t.get("name", "").lower() for t in video.get("tags", []))
     hits_tag = sum(1 for kw in keywords if kw in tag_text)
     score += min(hits_tag * 1.0, 2.0)
 
-    # 检查标题
+    # 3. 检查标题与内容 (权重: 1.0)
     title = video.get("title", "").lower()
-    hits_title = sum(1 for kw in keywords if kw in title)
-    score += min(hits_title * 0.5, 1.0)
-
-    # 检查内容
     content = (video.get("content", "") or "").lower()
-    hits_content = sum(1 for kw in keywords if kw in content)
-    score += min(hits_content * 0.3, 1.0)
+    hits_text = sum(1 for kw in keywords if kw in title or kw in content)
+    score += min(hits_text * 0.5, 1.0)
 
     return min(10.0, round(score, 1))
 
 
 def score_pacing(video: dict) -> float:
-    """节奏控制：时长是否在广告黄金区间"""
+    """节奏控制：基于视频分类的动态时长标准"""
     duration = video.get("duration", 0)
     if duration == 0:
         return 6.0
-    # 广告黄金时长：30s - 3min
-    if 30 <= duration <= 60:
-        return 9.0
-    elif 60 < duration <= 120:
-        return 8.5
-    elif 120 < duration <= 180:
-        return 8.0
-    elif 15 <= duration < 30:
-        return 7.5
-    elif 180 < duration <= 300:
-        return 7.0
-    elif duration < 15:
-        return 6.0
-    else:  # > 5min
-        return max(5.0, 7.0 - (duration - 300) / 300 * 2)
-
-
-def score_overall(scores: dict) -> float:
-    """综合分：加权平均"""
-    weights = {
-        "creativity": 0.25,
-        "production_quality": 0.20,
-        "industry_match": 0.20,
-        "pacing": 0.15,
-        "engagement": 0.20,
-    }
-    return round(sum(scores.get(k, 0) * v for k, v in weights.items()), 1)
+    
+    # 获取主要分类
+    categories = video.get("categories", [])
+    main_cat = categories[0].get("category_name", "") if categories else ""
+    
+    # 动态标准
+    if any(kw in main_cat for kw in ["纪录片", "微电影", "剧情", "访谈"]):
+        # 长视频标准: 3-10min 最佳
+        if 180 <= duration <= 600: return 9.0
+        elif 120 <= duration < 180: return 8.0
+        elif 600 < duration <= 900: return 8.0
+        else: return 6.5
+    else:
+        # 广告/短片标准: 30s-2min 最佳
+        if 30 <= duration <= 90: return 9.5
+        elif 90 < duration <= 180: return 8.5
+        elif 15 <= duration < 30: return 8.0
+        elif 180 < duration <= 300: return 7.0
+        else: return 5.5
 
 
 def score_engagement(video: dict) -> float:
-    """互动表现：基于点赞率、收藏率、分享率等"""
+    """互动表现：收藏率(高权重) + 点赞率 + 分享率"""
     c = video.get("count", {})
     views = max(1, c.get("count_view", 0))
     likes = c.get("count_like", 0)
@@ -168,19 +184,31 @@ def score_engagement(video: dict) -> float:
     share_rate = shares / views
 
     score = 5.0
-    if like_rate > 0.01:
-        score += 1.5
-    elif like_rate > 0.005:
-        score += 0.8
-    if collect_rate > 0.01:
-        score += 1.5
-    elif collect_rate > 0.005:
-        score += 0.8
-    if share_rate > 0.005:
-        score += 1.0
-    if share_rate > 0.01:
-        score += 1.0
+    # 收藏率是核心指标 (专业度体现)
+    if collect_rate > 0.015: score += 2.5
+    elif collect_rate > 0.008: score += 1.5
+    elif collect_rate > 0.004: score += 0.8
+    
+    # 点赞率
+    if like_rate > 0.02: score += 1.5
+    elif like_rate > 0.01: score += 0.8
+    
+    # 分享率
+    if share_rate > 0.005: score += 1.0
+    
     return min(10.0, round(score, 1))
+
+
+def score_overall(scores: dict) -> float:
+    """综合分：优化权重分配"""
+    weights = {
+        "creativity": 0.30,          # 创意第一
+        "production_quality": 0.25,  # 制作第二
+        "industry_match": 0.20,      # 行业匹配
+        "pacing": 0.10,              # 节奏
+        "engagement": 0.15,           # 互动
+    }
+    return round(sum(scores.get(k, 0) * v for k, v in weights.items()), 1)
 
 
 def evaluate_video(video: dict, industry: str = "", style_preference: str = "") -> dict:
@@ -207,26 +235,25 @@ def build_evaluation_prompt(video: dict, industry: str, style_preference: str) -
     tags = [t.get("name", "") for t in video.get("tags", [])]
     content = (video.get("content", "") or "")[:500]
 
-    prompt = f"""你是广告创意评审专家。请对以下视频做一句话评价。
+    prompt = f"""作为戛纳广告奖评审，请对以下视频进行专业创意审计。
 
-【视频信息】
+【视频元数据】
 标题：{video.get('title', '')}
 时长：{video.get('duration', 0)}秒
 分类：{cat_str}
 标签：{', '.join(tags)}
-播放：{c.get('count_view', 0)} | 点赞：{c.get('count_like', 0)} | 收藏：{c.get('count_collect', 0)}
+互动：{c.get('count_like', 0)}赞/{c.get('count_collect', 0)}收藏
 文案：{content[:200]}
 
-【目标行业】{industry or '通用'}
-【风格偏好】{style_preference or '不限'}
+【行业背景】目标行业: {industry or '通用'} | 偏好风格: {style_preference or '不限'}
 
 请给出 JSON（仅JSON无其他文字）：
-{{"summary": "一句话推荐理由（中文，20字内）", "key_elements": ["标签1", "标签2", "标签3"]}}"""
+{{"summary": "20字内深度点评（包含创意点与行业契合度）", "key_elements": ["专业术语1", "专业术语2", "专业术语3"]}}"""
     return prompt
 
 
 def build_batch_prompt(videos: list, industry: str, style_preference: str) -> str:
-    """构造批量评价prompt（20条一起）"""
+    """构造批量评价prompt（20条一起），提升专业深度"""
     lines = []
     for i, v in enumerate(videos):
         c = v.get("count", {})
@@ -239,20 +266,22 @@ def build_batch_prompt(videos: list, industry: str, style_preference: str) -> st
         content = (v.get("content", "") or "")[:150]
         lines.append(
             f"[{i+1}] 标题:{v.get('title','')} | {v.get('duration',0)}秒 | {cat_str} | "
-            f"标签:{','.join(tags)} | 播放:{c.get('count_view',0)} | "
-            f"点赞:{c.get('count_like',0)} | 文案:{content}"
+            f"标签:{','.join(tags)} | 互动:{c.get('count_like',0)}赞/{c.get('count_collect',0)}藏 | 文案:{content}"
         )
 
-    prompt = f"""你是广告创意评审专家。请对以下20条视频，每条给出 JSON 评价。
+    prompt = f"""作为戛纳广告奖评审，请对以下20条视频进行专业创意审计。
 
-目标行业：{industry or '通用'}
-风格偏好：{style_preference or '不限'}
+【行业背景】目标行业: {industry or '通用'} | 偏好风格: {style_preference or '不限'}
+
+【评审任务】
+1. summary: 20字内。必须包含[核心创意点]与[行业适配性]。避免空洞赞美，要具体到手法（如：非线性叙事、色彩叙事等）。
+2. key_elements: 3-5个。必须使用专业术语（如：蒙太奇、高反差、视听通感、情绪留白、打破第四面墙等）。
 
 视频列表：
 {chr(10).join(lines)}
 
 请返回严格JSON数组（仅JSON无其他文字）：
-[{{"summary": "20字内推荐理由", "key_elements": ["标签1","标签2","标签3"]}}, ...]"""
+[{{\"summary\": \"专业点评\", \"key_elements\": [\"术语1\",\"术语2\"]}}, ...]"""
     return prompt
 
 
@@ -288,7 +317,7 @@ def _get_llm_client():
     if ds_key:
         try:
             from openai import OpenAI
-            return ("deepseek", OpenAI(api_key=ds_key, base_url="https://api.deepseek.com/v1"))
+            return ("deepseek", OpenAI(api_key=ds_key, base_url="https://api.deepseek.com"))
         except ImportError:
             pass
 
@@ -317,12 +346,12 @@ def _call_deepseek(client, prompt: str) -> str:
     resp = client.chat.completions.create(
         model="deepseek-chat",
         messages=[
-            {"role": "system", "content": "你是资深广告创意评审专家。只输出JSON，不输出任何其他文字。summary 中文20字内，key_elements 每条3-5个标签。"},
+            {"role": "system", "content": "你是一位拥有20年经验的顶级4A公司创意总监、戛纳广告奖评委。你的点评必须严谨、犀利、专业，使用标准广告行业术语。只输出JSON数组，不输出markdown和任何解释文字。"},
             {"role": "user", "content": prompt},
         ],
         temperature=0.7,
-        max_tokens=2048,
-        timeout=45,
+        max_tokens=3072,
+        timeout=60,
     )
     return resp.choices[0].message.content.strip()
 
@@ -330,12 +359,12 @@ def _call_deepseek(client, prompt: str) -> str:
 def _call_anthropic(client, prompt: str) -> str:
     """通过 Anthropic API 获取评价"""
     resp = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        system="你是资深广告创意评审专家。只输出JSON，不输出任何其他文字。summary 中文20字内，key_elements 每条3-5个标签。",
+        model="claude-3-5-sonnet-20240620",
+        max_tokens=3072,
+        system="你是一位拥有20年经验的顶级4A公司创意总监、戛纳广告奖评委。你的点评必须犀利、专业，使用标准广告行业术语。只输出JSON数组，不输出markdown和任何解释文字。",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.7,
-        timeout=45,
+        timeout=60,
     )
     return resp.content[0].text.strip()
 
@@ -343,7 +372,7 @@ def _call_anthropic(client, prompt: str) -> str:
 def evaluate_batch_with_llm(videos: list, industry: str = "", style_preference: str = "") -> list:
     """批量调 LLM API 生成 summary + key_elements
 
-    Returns: [{"summary": "...", "key_elements": [...]}, ...]  长度与videos一致
+    Returns: [{"summary": "...", "key_elements": [...]}, ...]  长度 with videos一致
     失败时返回 None，上层应 fallback 到本地生成
     """
     provider, client = _get_llm_client()
