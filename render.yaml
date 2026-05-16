@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: xinpianchang-video-evaluator
+    name: video-ai-evaluator
     env: python
     region: singapore
     buildCommand: pip install -r requirements.txt

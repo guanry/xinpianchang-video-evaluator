@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-新片场视频信息抓取器
+视频信息抓取器
 通过 apis.netstart.cn/xpc 代理 API 获取视频详情
 文档: https://apis.netstart.cn/xpc/
 """
@@ -133,7 +133,7 @@ def scrape(url_or_id):
 # ===== CLI =====
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="新片场视频信息抓取器")
+    parser = argparse.ArgumentParser(description="视频信息抓取器")
     parser.add_argument("url_or_id", nargs="?", default="13266271", help="视频URL或ID")
     parser.add_argument("--json", "-j", action="store_true", help="输出原始JSON")
     parser.add_argument("--save", "-s", type=str, help="保存到指定文件")

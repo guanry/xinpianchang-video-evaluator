@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-新片场视频评价平台 — Flask Web 应用
+视频创意 AI 评价平台 — Flask Web 应用
 """
 import json, time, os, sys
 from flask import Flask, request, jsonify, render_template
@@ -11,6 +11,13 @@ if sys.platform == "win32":
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except:
         pass
+
+# 加载筛选器配置
+FILTERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "search_filters.json")
+SEARCH_FILTERS = {}
+if os.path.exists(FILTERS_FILE):
+    with open(FILTERS_FILE, "r", encoding="utf-8") as f:
+        SEARCH_FILTERS = json.load(f)
 
 # 强制从 .env 加载环境变量（在任何导入之前）
 _ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
@@ -44,24 +51,85 @@ CACHE_TTL = 600  # 10 min，对齐上游缓存
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
-def search_videos(keyword: str, page: int = 1) -> list:
-    """搜索视频，返回list"""
-    cache_key = f"search:{keyword}:{page}"
+def search_videos(keyword: str, page: int = 1, filters: dict = None) -> list:
+    """搜索视频，返回list，支持分类/时长/比例等筛选
+
+    注意：第三方 API 对部分筛选参数支持不完整，
+    需要在客户端对 duration / screen_type 做二次过滤。
+    """
+    filter_key = json.dumps(filters, sort_keys=True) if filters else ""
+    cache_key = f"search:{keyword}:{page}:{filter_key}"
     now = time.time()
     if cache_key in CACHE and CACHE[cache_key]["ts"] > now - CACHE_TTL:
         return CACHE[cache_key]["data"]
 
-    params = {"type": "article", "kw": keyword, "sort": "hot", "page": page}
-    resp = requests.get(SEARCH_API, params=params, headers=HEADERS, timeout=30)
-    resp.raise_for_status()
-    body = resp.json()
-    if body.get("status") != 0:
-        raise Exception(f"Search API error: {body.get('message')}")
+    params = {"type": "article", "sort": "hot", "page": page, "precision_search": 1}
 
-    data = body.get("data", {})
-    items = data.get("list", [])
-    CACHE[cache_key] = {"ts": now, "data": items}
-    return items
+    # 关键词：可选（支持纯筛选查询）
+    if keyword:
+        params["kw"] = keyword
+
+    # 服务端可识别的筛选参数（全部传入，服务端能过滤则过滤）
+    if filters:
+        if filters.get("cate_id"):
+            params["cate_id"] = filters["cate_id"]
+        if filters.get("system_tags"):
+            params["system_tags"] = filters["system_tags"]
+        if filters.get("duration"):
+            params["duration"] = filters["duration"]
+        if filters.get("screen_type"):
+            params["screen_type"] = filters["screen_type"]
+
+    # 需要客户端二次过滤的参数
+    client_filters = {}
+    if filters:
+        if filters.get("duration"):
+            parts = str(filters["duration"]).split(",")
+            if len(parts) == 2:
+                client_filters["duration_min"] = int(parts[0])
+                client_filters["duration_max"] = int(parts[1])
+        if filters.get("screen_type"):
+            client_filters["screen_type"] = int(filters["screen_type"])
+
+    # 如果有客户端过滤需求，多取几页数据以提高命中率
+    max_page = page
+    if client_filters:
+        max_page = min(page + 2, 5)  # 最多多取2页，避免超时
+
+    all_items = []
+    for p in range(page, max_page + 1):
+        params["page"] = p
+        try:
+            resp = requests.get(SEARCH_API, params=params, headers=HEADERS, timeout=20)
+            resp.raise_for_status()
+            body = resp.json()
+            if body.get("status") != 0:
+                break
+            data = body.get("data", {})
+            batch = data.get("list", [])
+            all_items.extend(batch)
+            if not batch or len(batch) < 20:
+                break  # 没有更多数据
+        except Exception:
+            break  # 请求失败则停止翻页
+
+    # 客户端二次过滤
+    if client_filters:
+        filtered = []
+        for v in all_items:
+            dur = v.get("duration", 0)
+            st = v.get("screen_type")
+            if "duration_min" in client_filters and dur < client_filters["duration_min"]:
+                continue
+            if "duration_max" in client_filters and dur > client_filters["duration_max"]:
+                continue
+            if "screen_type" in client_filters and st != client_filters["screen_type"]:
+                continue
+            filtered.append(v)
+        all_items = filtered
+
+    CACHE[cache_key] = {"ts": now, "data": all_items}
+    return all_items
 
 
 def get_video_detail(article_id: int) -> dict:
@@ -91,6 +159,12 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/filters")
+def api_filters():
+    """返回筛选器配置"""
+    return jsonify(SEARCH_FILTERS)
+
+
 @app.route("/api/search")
 def api_search():
     keyword = request.args.get("kw", "").strip()
@@ -98,16 +172,26 @@ def api_search():
     style = request.args.get("style", "").strip()
     page = request.args.get("page", 1, type=int)
 
-    if not keyword:
-        return jsonify({"error": "请输入搜索关键词"}), 400
+    # 筛选参数
+    filters = {
+        "cate_id": request.args.get("cate_id", "", type=int) or None,
+        "system_tags": request.args.get("system_tags", "").strip() or None,
+        "duration": request.args.get("duration", "").strip() or None,
+        "screen_type": request.args.get("screen_type", "", type=int) or None,
+    }
+    # 过滤掉空值
+    filters = {k: v for k, v in filters.items() if v is not None}
+
+    if not keyword and not filters:
+        return jsonify({"error": "请输入搜索关键词或选择筛选条件"}), 400
 
     try:
-        items = search_videos(keyword, page)
+        items = search_videos(keyword, page, filters)
     except Exception as e:
         return jsonify({"error": f"搜索失败: {str(e)}"}), 500
 
     if not items:
-        return jsonify({"error": f"未找到与「{keyword}」相关的视频", "videos": []})
+        return jsonify({"error": f"未找到符合条件的视频", "videos": []})
 
     # 取前20条
     videos = items[:20]
@@ -203,7 +287,7 @@ if __name__ == "__main__":
     from evaluate import _get_llm_client
     provider, _ = _get_llm_client()
     print("=" * 50)
-    print("新片场视频评价平台")
+    print("视频创意 AI 评价平台")
     if provider:
         print(f"LLM 评价: 已接入 ({provider})")
     else:
