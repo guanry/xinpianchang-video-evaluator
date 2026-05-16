@@ -322,10 +322,6 @@ document.getElementById('searchForm').addEventListener('submit', async function(
   const industry = document.getElementById('industry').value.trim();
   const style = document.getElementById('style').value.trim();
 
-  if (!kw) {
-    alert('请输入关键词');
-    return;
-  }
 
   const grid = document.getElementById('grid');
   const empty = document.getElementById('emptyState');
