@@ -1413,6 +1413,26 @@ def analyze_creator_profile(video: dict) -> dict:
 # L2 模块5：趋势与机会发现
 # ============================================================
 
+def _generate_trend_insight_llm(cat_dist, rising, provider, client):
+    """用 LLM 生成更自然的一行趋势洞察"""
+    cat_names = [c["category"] for c in cat_dist[:5]]
+    rising_names = [r["username"] for r in rising[:5]]
+    prompt = f"""你是一位视频平台数据分析师。根据以下搜索聚合数据，用一句话（30字内）概括当前搜索池的趋势特征。
+
+品类分布: {", ".join(cat_names)}
+上升创作者: {", ".join(rising_names) if rising_names else "无显著上升创作者"}
+
+要求: 用单引号标记品类名称（如 '广告片'），以便前端加粗渲染。仅输出一句话，无其他文字。"""
+    try:
+        if provider == "deepseek":
+            text = _call_deepseek(client, prompt, L2_SYSTEM_PROMPT)
+        else:
+            text = _call_anthropic(client, prompt, L2_SYSTEM_PROMPT)
+        return text.strip().strip('"').strip("'")
+    except Exception:
+        return None
+
+
 def detect_search_trends(items: list, emb_idx=None) -> dict:
     """M5: 从搜索结果中检测品类趋势和上升创作者
 
@@ -1487,10 +1507,29 @@ def detect_search_trends(items: list, emb_idx=None) -> dict:
 
     rising.sort(key=lambda x: x["rising_score"], reverse=True)
 
+    # 生成洞察文本
+    insight_parts = []
+    if cat_dist:
+        top_names = [f"'{c['category']}'({c['pct']}%)" for c in cat_dist[:3]]
+        insight_parts.append(f"品类分布: {', '.join(top_names)}")
+    if rising:
+        names = '、'.join(r['username'] for r in rising[:3])
+        insight_parts.append(f"发现 {len(rising)} 位上升创作者 (如 {names})")
+    insight_text = "；".join(insight_parts) if insight_parts else "暂无显著趋势信号"
+
+    # 尝试 LLM 生成更丰富的洞察（失败则用规则文本）
+    provider, client = _get_llm_client()
+    if provider and client and len(cat_dist) >= 2:
+        try:
+            insight_text = _generate_trend_insight_llm(cat_dist, rising, provider, client) or insight_text
+        except Exception:
+            pass
+
     return {
         "category_distribution": cat_dist,
         "rising_creators": rising[:5],
         "total_analyzed": len(items),
+        "insight_text": insight_text,
     }
 
 

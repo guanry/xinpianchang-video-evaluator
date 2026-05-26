@@ -1477,7 +1477,7 @@ function renderTrendBanner(trends) {
   // Add rising creator count if available
   if (trends.rising_creators && trends.rising_creators.length) {
     const names = trends.rising_creators.slice(0, 3).map(c => c.username).join('、');
-    html += ` | 上升创作者: ${names}`;
+    html += ' | 上升创作者: ' + names;
   }
 
   document.getElementById('trendText').innerHTML = html;
