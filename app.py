@@ -63,7 +63,13 @@ from evaluate import (
     score_all_dimensions,
     compute_scenario_scores,
     build_full_evaluation,
+    extract_l2_metadata,
+    run_m2_analysis,
+    analyze_creator_profile,
+    detect_search_trends,
+    build_m6_synthesis,
 )
+from embedding import get_index
 from scrape_video import get_article, format_detail, search_videos as scrape_search
 import requests
 
@@ -339,6 +345,14 @@ def api_search():
     if not items:
         return jsonify({"error": f"未找到符合条件的视频", "videos": []})
 
+    # 0. 索引到语义 Embedding 库（模块3）
+    try:
+        emb_idx = get_index()
+        emb_idx.add_batch(items)
+        emb_idx.save()
+    except Exception as e:
+        print(f"[embedding] index failed: {e}")
+
     # 1. L1 极速评分与分流 (毫秒级，针对搜索列表) — 已内置 D1-D4
     scored_items = c_eye_l1_fast_scorer(items[:24], industry)
 
@@ -378,6 +392,14 @@ def api_search():
         ss = item.get("scenario_scores", {})
         item["overall"] = ss.get("default", item.get("reference_score", 0))
 
+    # 4. 趋势检测（模块5）
+    trend_signals = None
+    try:
+        emb_idx = get_index()
+        trend_signals = detect_search_trends(items, emb_idx)
+    except Exception as e:
+        print(f"[api_search] trend detection failed: {e}")
+
     return jsonify({
         "keyword": keyword,
         "industry": industry,
@@ -387,6 +409,8 @@ def api_search():
         "count": len(scored_items),
         "llm_enabled": llm_results is not None,
         "videos": scored_items,
+        "trends": trend_signals,
+        "indexed_count": get_index().size if trend_signals else 0,
     })
 
 
@@ -431,9 +455,28 @@ def api_evaluate():
             scores = {"D1_audience_reception": {"score": 5.0}, "D2_commercial_value": {"score": 5.0},
                       "D3_team_professionalism": {"score": 5.0}, "D4_freshness": {"score": 5.0}}
 
-        # 2. 调用 LLM 进行 ECD 模式审计
+        # 2. M2 ML 模式识别（互动分类 / 质量预测 / 异常检测）
+        m2_results = None
         try:
-            ecd_report = evaluate_batch_with_llm([detail], industry, style, mode="ecd")
+            m2_results = run_m2_analysis(detail)
+        except Exception as e:
+            print(f"[api_evaluate] run_m2_analysis failed: {e}")
+
+        # 3. L2 AI 元数据提取（模块1：LLM 推理）
+        l2_metadata = None
+        try:
+            l2_metadata = extract_l2_metadata(detail, industry, style)
+            # 注入 M2 互动分类结果到 L2 metadata（覆盖 LLM/规则推断）
+            if l2_metadata and m2_results:
+                l2_metadata["engagement_type"] = m2_results["engagement"]["type"]
+                l2_metadata["engagement_confidence"] = m2_results["engagement"]["confidence"]
+                l2_metadata["engagement_signals"] = m2_results["engagement"]["signals"]
+        except Exception as e:
+            print(f"[api_evaluate] extract_l2_metadata failed: {e}")
+
+        # 4. 调用 LLM 进行 ECD 模式审计（注入 L2 元数据）
+        try:
+            ecd_report = evaluate_batch_with_llm([detail], industry, style, mode="ecd", l2_metadata=l2_metadata)
         except Exception as e:
             print(f"[api_evaluate] evaluate_batch_with_llm failed: {e}")
             ecd_report = None
@@ -450,6 +493,32 @@ def api_evaluate():
             else:
                 flat_scores[dim_key] = dim_data
 
+        # 5. 相似作品推荐（模块3：Embedding 语义相似度）
+        similar_works = []
+        try:
+            emb_idx = get_index()
+            # 确保当前视频已被索引
+            emb_idx.add(detail)
+            similar_works = emb_idx.find_similar(str(detail.get("id")), top_k=5)
+        except Exception as e:
+            print(f"[api_evaluate] similar_works failed: {e}")
+
+        # 6. 创作者深度画像（模块4）
+        creator_profile = None
+        try:
+            creator_profile = analyze_creator_profile(detail)
+        except Exception as e:
+            print(f"[api_evaluate] creator_profile failed: {e}")
+
+        # 7. 跨维度综合推理（模块6）
+        synthesis = None
+        try:
+            synthesis = build_m6_synthesis(detail, l1_scores=scores, l2_metadata=l2_metadata,
+                                           m2_results=m2_results, similar_works=similar_works,
+                                           creator_profile=creator_profile)
+        except Exception as e:
+            print(f"[api_evaluate] build_m6_synthesis failed: {e}")
+
         return jsonify({
             "id": detail.get("id"),
             "title": detail.get("title"),
@@ -458,6 +527,11 @@ def api_evaluate():
             "scenarios": evaluation.get("scenarios", {}) if evaluation else {},
             "pool_info": evaluation.get("pool_info", {}) if evaluation else {},
             "ecd_report": ecd_report,
+            "l2_metadata": l2_metadata,
+            "m2_results": m2_results,
+            "similar_works": similar_works,
+            "creator_profile": creator_profile,
+            "synthesis": synthesis,
             "web_url": detail.get("web_url", "")
         })
     except Exception as e:

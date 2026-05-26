@@ -495,6 +495,275 @@
     margin: 16px 0;
   }
 
+  /* ── L2 Metadata ── */
+  .l2-section {
+    background: var(--surface-alt);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+  }
+  .l2-section-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .l2-section-title .l2-fallback-badge {
+    font-size: 10px;
+    background: #b8860b;
+    color: #000;
+    padding: 1px 6px;
+    border-radius: var(--radius-full);
+    font-weight: 600;
+  }
+  .l2-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .l2-chip {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+  }
+  .l2-chip.primary { background: rgba(208,188,255,0.15); color: var(--primary); border-color: rgba(208,188,255,0.3); }
+  .l2-chip.accent { background: rgba(123,208,255,0.12); color: var(--tertiary, #7bd0ff); border-color: rgba(123,208,255,0.25); }
+  .l2-chip.warn  { background: rgba(255,180,0,0.12); color: #ffb400; border-color: rgba(255,180,0,0.25); }
+  .l2-text-line {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+  .l2-text-line strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  /* ── M2 模式识别 ── */
+  .m2-quality-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+    font-size: 12px;
+  }
+  .m2-quality-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--surface);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .m2-quality-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s ease;
+  }
+  .m2-quality-fill.high { background: #4ade80; }
+  .m2-quality-fill.mid  { background: #facc15; }
+  .m2-quality-fill.low  { background: #ef4444; }
+  .m2-quality-val {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--primary);
+    min-width: 36px;
+    text-align: right;
+  }
+  .m2-anomaly-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    margin-top: 6px;
+  }
+  .m2-anomaly-flag.ok     { background: rgba(74,222,128,0.1); color: #4ade80; }
+  .m2-anomaly-flag.warn   { background: rgba(250,204,21,0.15); color: #facc15; }
+  .m2-anomaly-flag.danger { background: rgba(239,68,68,0.15); color: #ef4444; }
+  .m2-signals-text {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+
+  /* ── Similar Works ── */
+  .similar-section { margin-top: 20px; }
+  .similar-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+  }
+  .similar-list { display: flex; flex-direction: column; gap: 8px; }
+  .similar-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface-alt);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: border 0.15s;
+  }
+  .similar-card:hover { border-color: var(--primary); }
+  .similar-cover {
+    width: 48px; height: 32px;
+    border-radius: 4px;
+    object-fit: cover;
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .similar-info { flex: 1; min-width: 0; }
+  .similar-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .similar-meta {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+  }
+  .similar-score {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--primary);
+    flex-shrink: 0;
+    padding: 2px 8px;
+    background: rgba(208,188,255,0.1);
+    border-radius: var(--radius-full);
+  }
+
+  /* ── M6 Synthesis ── */
+  .synthesis-section {
+    margin-top: 20px;
+    background: linear-gradient(135deg, rgba(208,188,255,0.08), rgba(255,255,255,0.02));
+    border: 1px solid rgba(208,188,255,0.2);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+  }
+  .synthesis-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+  }
+  .synthesis-text {
+    font-size: 14px;
+    line-height: 1.8;
+    color: var(--text);
+    margin-bottom: 14px;
+  }
+  .synthesis-insights {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .synthesis-insight-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+  .synthesis-insight-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--primary);
+    flex-shrink: 0;
+    margin-top: 7px;
+  }
+
+  /* ── Creator Profile ── */
+  .creator-section {
+    background: var(--surface-alt);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+  }
+  .creator-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .creator-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .creator-tier-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+  }
+  .creator-tier-badge.head { background: rgba(208,188,255,0.2); color: var(--primary); }
+  .creator-tier-badge.waist { background: rgba(123,208,255,0.15); color: var(--tertiary, #7bd0ff); }
+  .creator-tier-badge.rising { background: rgba(74,222,128,0.12); color: #4ade80; }
+  .creator-tier-badge.new { background: rgba(255,255,255,0.08); color: var(--text-secondary); }
+  .creator-stats-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .creator-stats-row span { white-space: nowrap; }
+  .creator-stats-row strong { color: var(--text); }
+  .creator-insight {
+    font-size: 12px;
+    color: var(--primary);
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: rgba(208,188,255,0.06);
+    border-radius: var(--radius-sm);
+    line-height: 1.5;
+  }
+
+  /* ── Trend Banner ── */
+  .trend-banner {
+    background: rgba(123,208,255,0.08);
+    border: 1px solid rgba(123,208,255,0.2);
+    border-radius: var(--radius);
+    padding: 10px 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .trend-banner .trend-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+  .trend-banner strong { color: var(--tertiary, #7bd0ff); }
+
   /* ── Empty State ── */
   .empty-state {
     grid-column: 1 / -1;
@@ -594,6 +863,10 @@
       <button class="tab-item" data-category="宏大叙事/微电影流">叙事/微电影</button>
     </div>
 
+    <div class="trend-banner" id="trendBanner" style="display:none;">
+      <span class="trend-icon">&#128200;</span>
+      <span id="trendText"></span>
+    </div>
     <div class="video-grid" id="videoList">
       <div class="empty-state">
         <h3>即刻开启创意审计</h3>
@@ -692,7 +965,39 @@
         </div>
       </div>
       <div class="detail-scenarios" id="detailScenarios"></div>
+      <div class="l2-section" id="l2Section" style="display:none;">
+        <div class="l2-section-title" id="l2Title">L2 AI 预分析</div>
+        <div class="l2-meta-row" id="l2MetaRow"></div>
+        <div class="l2-text-line" id="l2StyleLine"></div>
+        <div class="l2-text-line" id="l2MoodLine"></div>
+        <div class="l2-meta-row" id="l2KeywordRow"></div>
+        <div class="m2-quality-bar-wrap" id="m2QualityWrap">
+          <span style="font-size:11px;color:var(--text-secondary);white-space:nowrap;">质量预测</span>
+          <div class="m2-quality-bar"><div class="m2-quality-fill" id="m2QualityFill"></div></div>
+          <span class="m2-quality-val" id="m2QualityVal">-</span>
+        </div>
+        <div id="m2AnomalyFlag"></div>
+        <div class="m2-signals-text" id="m2SignalsText"></div>
+      </div>
       <div id="ecdReport" class="ecd-report-content"></div>
+      <div class="creator-section" id="creatorSection" style="display:none;">
+        <div class="creator-header">
+          <span class="creator-name" id="creatorName">-</span>
+          <span class="creator-tier-badge" id="creatorTier">-</span>
+        </div>
+        <div class="l2-meta-row" id="creatorStyleTags"></div>
+        <div class="creator-stats-row" id="creatorStats"></div>
+        <div class="creator-insight" id="creatorInsight"></div>
+      </div>
+      <div class="synthesis-section" id="synthesisSection" style="display:none;">
+        <div class="synthesis-section-title">综合洞察 Synthesis</div>
+        <div class="synthesis-text" id="synthesisText"></div>
+        <div class="synthesis-insights" id="synthesisInsights"></div>
+      </div>
+      <div class="similar-section" id="similarSection" style="display:none;">
+        <div class="similar-section-title">相似风格作品</div>
+        <div class="similar-list" id="similarList"></div>
+      </div>
       <div style="margin-top: 28px;">
         <a id="playLink" href="#" target="_blank" class="modal-btn" style="display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none;">
           ▶ 前往新片场播放
@@ -834,6 +1139,7 @@ document.getElementById('btnSearch').onclick = async () => {
     } else {
       allVideos = data.videos;
       document.getElementById('categoryTabs').style.display = 'flex';
+      renderTrendBanner(data.trends);
       renderVideos();
     }
   } catch (err) {
@@ -951,6 +1257,10 @@ async function viewDetail(id) {
         `<div class="detail-scenario-chip"><span class="sc-label">${scLabels[k]||k}</span><span class="sc-value">${v}</span></div>`
       ).join('');
 
+      renderL2Metadata(data.l2_metadata, data.m2_results);
+      renderCreatorProfile(data.creator_profile);
+      renderSimilarWorks(data.similar_works);
+      renderSynthesis(data.synthesis);
       document.getElementById('ecdReport').innerHTML = marked.parse(data.ecd_report || '暂无审计报告');
       document.getElementById('detailLoading').style.display = 'none';
       document.getElementById('detailContent').style.display = 'block';
@@ -958,6 +1268,238 @@ async function viewDetail(id) {
   } catch (err) {
     alert('审计失败: ' + err.message);
     closeModals();
+  }
+}
+
+function renderL2Metadata(l2, m2) {
+  const section = document.getElementById('l2Section');
+  if (!l2) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+
+  // Title with fallback indicator
+  const title = document.getElementById('l2Title');
+  if (l2._fallback) {
+    title.innerHTML = `L2 AI 预分析 <span class="l2-fallback-badge">本地规则</span>`;
+  } else {
+    title.textContent = 'L2 AI 预分析';
+  }
+
+  // Meta chips row: brand, tier, industry, commercial type, budget, engagement
+  const brand = l2.brand || {};
+  const chips = [];
+  if (brand.name) chips.push(`<span class="l2-chip primary">${escHtml(brand.name)}</span>`);
+  if (brand.tier && brand.tier !== 'unknown') chips.push(`<span class="l2-chip">${escHtml(brand.tier)}</span>`);
+  if (l2.industry) chips.push(`<span class="l2-chip">${escHtml(l2.industry)}</span>`);
+  if (l2.commercial_type && l2.commercial_type !== '其他') chips.push(`<span class="l2-chip accent">${escHtml(l2.commercial_type)}</span>`);
+  if (l2.budget_tier) chips.push(`<span class="l2-chip warn">${escHtml(l2.budget_tier)}级制作</span>`);
+  if (l2.engagement_type) {
+    const conf = l2.engagement_confidence ? ` ${Math.round(l2.engagement_confidence * 100)}%` : '';
+    chips.push(`<span class="l2-chip accent">${escHtml(l2.engagement_type)}${conf}</span>`);
+  }
+  document.getElementById('l2MetaRow').innerHTML = chips.join('');
+
+  // Style line
+  const styleLine = document.getElementById('l2StyleLine');
+  if (l2.visual_style) {
+    styleLine.innerHTML = `<strong>视觉风格:</strong> ${escHtml(l2.visual_style)}`;
+    styleLine.style.display = '';
+  } else {
+    styleLine.style.display = 'none';
+  }
+
+  // Mood line
+  const moodLine = document.getElementById('l2MoodLine');
+  if (l2.mood && l2.mood !== '未识别') {
+    const extras = [];
+    if (l2.target_audience) extras.push(`目标: ${escHtml(l2.target_audience)}`);
+    if (l2.creator_specialty) extras.push(`导演专长: ${escHtml(l2.creator_specialty)}`);
+    moodLine.innerHTML = `<strong>情绪基调:</strong> ${escHtml(l2.mood)}${extras.length ? ' &nbsp;|&nbsp; ' + extras.join(' &nbsp;|&nbsp; ') : ''}`;
+    moodLine.style.display = '';
+  } else {
+    moodLine.style.display = 'none';
+  }
+
+  // Keyword chips row
+  const kwRow = document.getElementById('l2KeywordRow');
+  const allKw = [
+    ...(l2.style_keywords || []).map(k => `<span class="l2-chip primary">${escHtml(k)}</span>`),
+    ...(l2.mood_keywords || []).map(k => `<span class="l2-chip">${escHtml(k)}</span>`),
+    ...(l2.tech_features || []).map(k => `<span class="l2-chip accent">${escHtml(k)}</span>`),
+  ];
+  kwRow.innerHTML = allKw.join('');
+  kwRow.style.display = allKw.length ? '' : 'none';
+
+  // ── M2 模式识别 ──
+  renderM2Results(m2);
+}
+
+function renderM2Results(m2) {
+  if (!m2) {
+    document.getElementById('m2QualityWrap').style.display = 'none';
+    document.getElementById('m2AnomalyFlag').style.display = 'none';
+    document.getElementById('m2SignalsText').style.display = 'none';
+    return;
+  }
+
+  // Quality prediction bar
+  const qp = m2.quality_prediction;
+  if (qp && qp.score !== undefined) {
+    const wrap = document.getElementById('m2QualityWrap');
+    wrap.style.display = 'flex';
+    const fill = document.getElementById('m2QualityFill');
+    const pct = Math.round(qp.score * 10);
+    fill.style.width = pct + '%';
+    fill.className = 'm2-quality-fill ' + (qp.score >= 7.5 ? 'high' : qp.score >= 5 ? 'mid' : 'low');
+    document.getElementById('m2QualityVal').textContent = qp.score.toFixed(1);
+    if (qp.confidence === 'low') {
+      document.getElementById('m2QualityVal').style.opacity = '0.6';
+    } else {
+      document.getElementById('m2QualityVal').style.opacity = '1';
+    }
+  } else {
+    document.getElementById('m2QualityWrap').style.display = 'none';
+  }
+
+  // Engagement signals text
+  const eng = m2.engagement;
+  const sigEl = document.getElementById('m2SignalsText');
+  if (eng && eng.signals && eng.signals.length) {
+    sigEl.textContent = eng.signals.join(' · ');
+    sigEl.style.display = '';
+  } else {
+    sigEl.style.display = 'none';
+  }
+
+  // Anomaly flag
+  const anom = m2.anomaly;
+  const flagEl = document.getElementById('m2AnomalyFlag');
+  if (anom) {
+    if (anom.is_suspicious) {
+      flagEl.innerHTML = '&#9888; 异常检测: ' + anom.flags.map(f => escHtml(f)).join('; ');
+      flagEl.className = 'm2-anomaly-flag danger';
+      flagEl.style.display = '';
+    } else if (anom.score > 0.15) {
+      flagEl.innerHTML = '&#9888; 异常检测: 需关注 (' + anom.flags.map(f => escHtml(f)).join('; ') + ')';
+      flagEl.className = 'm2-anomaly-flag warn';
+      flagEl.style.display = '';
+    } else {
+      flagEl.innerHTML = '&#10003; 数据正常';
+      flagEl.className = 'm2-anomaly-flag ok';
+      flagEl.style.display = '';
+    }
+  } else {
+    flagEl.style.display = 'none';
+  }
+}
+
+function renderCreatorProfile(profile) {
+  const section = document.getElementById('creatorSection');
+  if (!profile || !profile.username) { section.style.display = 'none'; return; }
+  section.style.display = '';
+
+  document.getElementById('creatorName').textContent = profile.username;
+
+  // Tier badge
+  const tierEl = document.getElementById('creatorTier');
+  tierEl.textContent = profile.tier;
+  tierEl.className = 'creator-tier-badge ' +
+    (profile.tier_label === '头部' ? 'head' :
+     profile.tier_label === '腰部' ? 'waist' :
+     profile.tier_label === '上升' ? 'rising' : 'new');
+
+  // Style tags
+  const tags = profile.style_tags || [];
+  document.getElementById('creatorStyleTags').innerHTML = tags.map(t =>
+    `<span class="l2-chip primary">${escHtml(t)}</span>`
+  ).join('');
+
+  // Stats row
+  const s = profile.stats || {};
+  const spec = profile.specialization || {};
+  const parts = [
+    `<span>品类专精: <strong>${escHtml(spec.primary || '-')}</strong> (${escHtml(spec.label || '')})</span>`,
+    `<span>质量一致性: <strong>${Math.round((profile.quality_consistency || 0) * 100)}%</strong> ${escHtml(profile.consistency_label || '')}</span>`,
+    `<span>合作: <strong>${escHtml(profile.collaboration_pattern || '')}</strong></span>`,
+    `<span>定价: <strong>${escHtml(profile.pricing_reference || '')}</strong></span>`,
+  ];
+  document.getElementById('creatorStats').innerHTML = parts.join('');
+
+  // Insights
+  const insights = profile.insights || [];
+  document.getElementById('creatorInsight').textContent = insights.join(' · ');
+  document.getElementById('creatorInsight').style.display = insights.length ? '' : 'none';
+}
+
+function renderSimilarWorks(works) {
+  const section = document.getElementById('similarSection');
+  const list = document.getElementById('similarList');
+  if (!works || !works.length) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+
+  list.innerHTML = works.map(w => {
+    const cover = w.cover ? `<img class="similar-cover" src="${escHtml(w.cover)}" alt="">` : '<div class="similar-cover"></div>';
+    const dur = w.duration ? `${Math.floor(w.duration/60)}'${String(w.duration%60).padStart(2,'0')}"` : '';
+    const simPct = Math.round(w.similarity * 100);
+    return `
+      <div class="similar-card" onclick="viewDetail('${escHtml(w.id)}')">
+        ${cover}
+        <div class="similar-info">
+          <div class="similar-title">${escHtml(w.title)}</div>
+          <div class="similar-meta">${escHtml(w.author || '')}${dur ? ' · ' + dur : ''}</div>
+        </div>
+        <span class="similar-score">${simPct}%</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderTrendBanner(trends) {
+  const banner = document.getElementById('trendBanner');
+  if (!trends || !trends.insight_text || trends.insight_text === '暂无显著趋势信号') {
+    banner.style.display = 'none';
+    return;
+  }
+  banner.style.display = 'flex';
+
+  // Build enriched text
+  let html = trends.insight_text;
+  // Bold category names and percentages
+  html = html.replace(/'([^']+)'/g, '<strong>$1</strong>');
+
+  // Add rising creator count if available
+  if (trends.rising_creators && trends.rising_creators.length) {
+    const names = trends.rising_creators.slice(0, 3).map(c => c.username).join('、');
+    html += ` | 上升创作者: ${names}`;
+  }
+
+  document.getElementById('trendText').innerHTML = html;
+}
+
+function renderSynthesis(synthesis) {
+  const section = document.getElementById('synthesisSection');
+  if (!synthesis || !synthesis.synthesis) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  document.getElementById('synthesisText').textContent = synthesis.synthesis;
+
+  const insightsEl = document.getElementById('synthesisInsights');
+  if (synthesis.insights && synthesis.insights.length) {
+    insightsEl.innerHTML = synthesis.insights.map(i =>
+      `<div class="synthesis-insight-item"><span class="synthesis-insight-dot"></span>${escHtml(i)}</div>`
+    ).join('');
+    insightsEl.style.display = 'flex';
+  } else {
+    insightsEl.style.display = 'none';
   }
 }
 
