@@ -27,3 +27,8 @@ video_data_full.json
 # IDE
 .vscode/
 .idea/
+
+instance/
+*.bak
+README.zip
+

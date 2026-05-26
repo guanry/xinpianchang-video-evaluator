@@ -3,7 +3,10 @@
 视频创意 AI 评价平台 — Flask Web 应用
 """
 import json, time, os, sys
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, redirect, url_for
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from flask_bcrypt import Bcrypt
 
 # Fix Windows console encoding
 if sys.platform == "win32":
@@ -11,6 +14,26 @@ if sys.platform == "win32":
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except:
         pass
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your-secret-key-here'  # Change this in production
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+from models import db, User, Favorite, Comment
+
+bcrypt = Bcrypt(app)
+db.init_app(app)
+login_manager = LoginManager(app)
+login_manager.login_view = 'index'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# Create database tables
+with app.app_context():
+    db.create_all()
 
 # 加载筛选器配置
 FILTERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "search_filters.json")
@@ -33,18 +56,19 @@ if os.path.exists(_ENV_FILE):
                     print(f"[env] Loaded {_k}", flush=True)
 
 from evaluate import (
-    evaluate_video,
+    c_eye_l1_fast_scorer,
     build_evaluation_prompt,
     evaluate_batch_with_llm,
     generate_local_summary,
+    score_all_dimensions,
+    compute_scenario_scores,
+    build_full_evaluation,
 )
-from scrape_video import get_article, format_detail
+from scrape_video import get_article, format_detail, search_videos as scrape_search
 import requests
 
-app = Flask(__name__)
-
-SEARCH_API = "https://apis.netstart.cn/xpc/search"
-DETAIL_API = "https://apis.netstart.cn/xpc/article"
+SEARCH_API = "https://www.xinpianchang.com/api/xpc/v2/search"
+DETAIL_API = "https://www.xinpianchang.com/api/xpc/v2/article"
 CACHE = {}
 CACHE_TTL = 600  # 10 min，对齐上游缓存
 
@@ -52,37 +76,32 @@ HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
 def search_videos(keyword: str, page: int = 1, filters: dict = None) -> list:
-    """搜索视频，返回list，支持分类/时长/比例等筛选
-
-    注意：第三方 API 对部分筛选参数支持不完整，
-    需要在客户端对 duration / screen_type 做二次过滤。
-    """
+    """搜索视频，返回list，支持分类/时长/比例等筛选"""
     filter_key = json.dumps(filters, sort_keys=True) if filters else ""
     cache_key = f"search:{keyword}:{page}:{filter_key}"
     now = time.time()
     if cache_key in CACHE and CACHE[cache_key]["ts"] > now - CACHE_TTL:
         return CACHE[cache_key]["data"]
 
-    params = {"type": "article", "sort": "hot", "page": page, "precision_search": 1}
+    # 使用 scrape_video 中的新 v2 API 搜索
+    cate_id = filters.get("cate_id") if filters else None
+    duration = filters.get("duration") if filters else None
+    screen_type = filters.get("screen_type") if filters else None
 
-    # 关键词：可选（支持纯筛选查询）
-    if keyword:
-        params["kw"] = keyword
+    try:
+        items = scrape_search(
+            keyword=keyword, page=page,
+            cate_id=str(cate_id) if cate_id else None,
+            duration=duration,
+            screen_type=str(screen_type) if screen_type else None,
+        )
+    except Exception as e:
+        print(f"[search_videos] scrape_search failed: {e}")
+        items = []
 
-    # 服务端可识别的筛选参数（全部传入，服务端能过滤则过滤）
-    if filters:
-        if filters.get("cate_id"):
-            params["cate_id"] = filters["cate_id"]
-        if filters.get("system_tags"):
-            params["system_tags"] = filters["system_tags"]
-        if filters.get("duration"):
-            params["duration"] = filters["duration"]
-        if filters.get("screen_type"):
-            params["screen_type"] = filters["screen_type"]
-
-    # 需要客户端二次过滤的参数
-    client_filters = {}
-    if filters:
+    # 客户端二次过滤
+    if filters and items:
+        client_filters = {}
         if filters.get("duration"):
             parts = str(filters["duration"]).split(",")
             if len(parts) == 2:
@@ -91,45 +110,22 @@ def search_videos(keyword: str, page: int = 1, filters: dict = None) -> list:
         if filters.get("screen_type"):
             client_filters["screen_type"] = int(filters["screen_type"])
 
-    # 如果有客户端过滤需求，多取几页数据以提高命中率
-    max_page = page
-    if client_filters:
-        max_page = min(page + 2, 5)  # 最多多取2页，避免超时
+        if client_filters:
+            filtered = []
+            for v in items:
+                dur = v.get("duration", 0)
+                st = v.get("screen_type")
+                if "duration_min" in client_filters and dur < client_filters["duration_min"]:
+                    continue
+                if "duration_max" in client_filters and dur > client_filters["duration_max"]:
+                    continue
+                if "screen_type" in client_filters and st != client_filters["screen_type"]:
+                    continue
+                filtered.append(v)
+            items = filtered
 
-    all_items = []
-    for p in range(page, max_page + 1):
-        params["page"] = p
-        try:
-            resp = requests.get(SEARCH_API, params=params, headers=HEADERS, timeout=20)
-            resp.raise_for_status()
-            body = resp.json()
-            if body.get("status") != 0:
-                break
-            data = body.get("data", {})
-            batch = data.get("list", [])
-            all_items.extend(batch)
-            if not batch or len(batch) < 20:
-                break  # 没有更多数据
-        except Exception:
-            break  # 请求失败则停止翻页
-
-    # 客户端二次过滤
-    if client_filters:
-        filtered = []
-        for v in all_items:
-            dur = v.get("duration", 0)
-            st = v.get("screen_type")
-            if "duration_min" in client_filters and dur < client_filters["duration_min"]:
-                continue
-            if "duration_max" in client_filters and dur > client_filters["duration_max"]:
-                continue
-            if "screen_type" in client_filters and st != client_filters["screen_type"]:
-                continue
-            filtered.append(v)
-        all_items = filtered
-
-    CACHE[cache_key] = {"ts": now, "data": all_items}
-    return all_items
+    CACHE[cache_key] = {"ts": now, "data": items}
+    return items
 
 
 def get_video_detail(article_id: int) -> dict:
@@ -158,6 +154,153 @@ def normalize_video(v: dict) -> dict:
 def index():
     return render_template("index.html")
 
+@app.route("/api/register", methods=["POST"])
+def api_register():
+    data = request.json
+    username = data.get("username")
+    password = data.get("password")
+    
+    if not username or not password:
+        return jsonify({"error": "请输入用户名和密码"}), 400
+    
+    if User.query.filter_by(username=username).first():
+        return jsonify({"error": "用户名已存在"}), 400
+    
+    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+    new_user = User(username=username, password_hash=hashed_password)
+    db.session.add(new_user)
+    db.session.commit()
+    
+    return jsonify({"message": "注册成功"})
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.json
+    username = data.get("username")
+    password = data.get("password")
+    
+    user = User.query.filter_by(username=username).first()
+    if user and bcrypt.check_password_hash(user.password_hash, password):
+        login_user(user)
+        return jsonify({"message": "登录成功", "user": {"username": user.username, "is_member": user.is_member}})
+    
+    return jsonify({"error": "用户名或密码错误"}), 401
+
+@app.route("/api/logout", methods=["POST"])
+@login_required
+def api_logout():
+    logout_user()
+    return jsonify({"message": "已退出登录"})
+
+@app.route("/api/me")
+def api_me():
+    if current_user.is_authenticated:
+        return jsonify({
+            "authenticated": True,
+            "username": current_user.username,
+            "is_member": current_user.is_member
+        })
+    return jsonify({"authenticated": False})
+
+@app.route("/api/upgrade", methods=["POST"])
+@login_required
+def api_upgrade():
+    # Simple membership upgrade simulation
+    current_user.is_member = True
+    db.session.commit()
+    return jsonify({"message": "会员升级成功", "is_member": True})
+
+@app.route("/api/favorites", methods=["GET"])
+@login_required
+def api_get_favorites():
+    favs = Favorite.query.filter_by(user_id=current_user.id).order_by(Favorite.created_at.desc()).all()
+    results = []
+    for f in favs:
+        try:
+            data = json.loads(f.video_data)
+            data['is_favorite'] = True
+            results.append(data)
+        except:
+            results.append({
+                "id": f.video_id,
+                "title": f.video_title,
+                "cover": f.video_cover,
+                "is_favorite": True
+            })
+    return jsonify({"videos": results})
+
+@app.route("/api/favorites/add", methods=["POST"])
+@login_required
+def api_add_favorite():
+    data = request.json
+    video_id = str(data.get("id"))
+    
+    if Favorite.query.filter_by(user_id=current_user.id, video_id=video_id).first():
+        return jsonify({"message": "已在收藏夹中"})
+    
+    new_fav = Favorite(
+        user_id=current_user.id,
+        video_id=video_id,
+        video_title=data.get("title"),
+        video_cover=data.get("cover"),
+        video_data=json.dumps(data)
+    )
+    db.session.add(new_fav)
+    db.session.commit()
+    return jsonify({"message": "收藏成功"})
+
+@app.route("/api/favorites/remove", methods=["POST"])
+@login_required
+def api_remove_favorite():
+    data = request.json
+    video_id = str(data.get("id"))
+    fav = Favorite.query.filter_by(user_id=current_user.id, video_id=video_id).first()
+    if fav:
+        db.session.delete(fav)
+        db.session.commit()
+        return jsonify({"message": "已取消收藏"})
+    return jsonify({"error": "未找到该收藏"}), 404
+
+@app.route("/api/comments", methods=["GET"])
+def api_get_comments():
+    video_id = request.args.get("video_id")
+    if not video_id:
+        return jsonify({"error": "缺失 video_id"}), 400
+    
+    comments = Comment.query.filter_by(video_id=video_id).order_by(Comment.created_at.desc()).all()
+    results = [{
+        "username": c.user.username,
+        "content": c.content,
+        "created_at": c.created_at.strftime("%Y-%m-%d %H:%M")
+    } for c in comments]
+    return jsonify({"comments": results})
+
+@app.route("/api/comments/add", methods=["POST"])
+@login_required
+def api_add_comment():
+    data = request.json
+    video_id = str(data.get("video_id"))
+    content = data.get("content")
+    
+    if not video_id or not content:
+        return jsonify({"error": "内容不能为空"}), 400
+    
+    new_comment = Comment(
+        user_id=current_user.id,
+        video_id=video_id,
+        content=content
+    )
+    db.session.add(new_comment)
+    db.session.commit()
+    
+    return jsonify({
+        "message": "评论成功",
+        "comment": {
+            "username": current_user.username,
+            "content": content,
+            "created_at": new_comment.created_at.strftime("%Y-%m-%d %H:%M")
+        }
+    })
 
 @app.route("/api/filters")
 def api_filters():
@@ -185,6 +328,9 @@ def api_search():
     if not keyword and not filters:
         return jsonify({"error": "请输入搜索关键词或选择筛选条件"}), 400
 
+    if not current_user.is_authenticated:
+        return jsonify({"error": "请先登录系统以执行审计任务", "auth_required": True}), 401
+
     try:
         items = search_videos(keyword, page, filters)
     except Exception as e:
@@ -193,94 +339,131 @@ def api_search():
     if not items:
         return jsonify({"error": f"未找到符合条件的视频", "videos": []})
 
-    # 取前20条
-    videos = items[:20]
+    # 1. L1 极速评分与分流 (毫秒级，针对搜索列表) — 已内置 D1-D4
+    scored_items = c_eye_l1_fast_scorer(items[:24], industry)
 
-    # 1. 算法评分（快速，所有视频）
-    scores_list = [evaluate_video(v, industry, style) for v in videos]
-
-    # 2. LLM 批量生成 summary + key_elements
-    llm_results = evaluate_batch_with_llm(videos, industry, style)
+    # 2. LLM 批量生成 summary + key_elements (仅限 Pro 用户)
+    llm_results = None
+    if current_user.is_member:
+        llm_results = evaluate_batch_with_llm(items[:12], industry, style)
 
     # 3. 组装结果
-    results = []
-    for i, v in enumerate(videos):
-        scores = scores_list[i]
+    favorite_ids = []
+    if current_user.is_authenticated:
+        favorite_ids = [f.video_id for f in Favorite.query.filter_by(user_id=current_user.id).all()]
+
+    for i, item in enumerate(scored_items):
+        item["is_favorite"] = item["id"] in favorite_ids
+
+        # 注入 LLM 深度审计结果 (Pro 专属)
         if llm_results and i < len(llm_results):
-            summary = llm_results[i].get("summary", "")
-            key_elements = llm_results[i].get("key_elements", [])
+            item["summary"] = llm_results[i].get("summary", "")
+            item["key_elements"] = llm_results[i].get("key_elements", [])
+            item["l2_audit"] = True
         else:
-            summary, key_elements = generate_local_summary(v, industry)
+            original_v = next((v for v in items if str(v.get("id")) == item["id"]), None)
+            if original_v:
+                summary, key_elements = generate_local_summary(original_v, industry)
+                item["summary"] = summary
+                item["key_elements"] = key_elements
+            item["l2_audit"] = False
 
-        results.append({
-            "id": v.get("id"),
-            "title": v.get("title", ""),
-            "cover": v.get("cover", ""),
-            "duration": v.get("duration", 0),
-            "web_url": v.get("web_url", ""),
-            "categories": [
-                {
-                    "main": c.get("category_name", ""),
-                    "sub": c.get("sub", {}).get("category_name", ""),
-                }
-                for c in v.get("categories", [])
-            ],
-            "tags": [t.get("name", "") for t in v.get("tags", [])],
-            "author": (
-                v.get("author", {}).get("userinfo", {}).get("username", "")
-                if isinstance(v.get("author"), dict)
-                else ""
-            ),
-            "stats": {
-                "views": v.get("count", {}).get("count_view", 0),
-                "likes": v.get("count", {}).get("count_like", 0),
-                "collects": v.get("count", {}).get("count_collect", 0),
-                "shares": v.get("count", {}).get("count_share", 0),
-                "comments": v.get("count", {}).get("count_comment", 0),
-            },
-            "scores": scores,
-            "summary": summary,
-            "key_elements": key_elements,
-        })
+    # 提取纯分数字段（前端兼容）
+    for item in scored_items:
+        sd = item.get("scores", {})
+        item["D1"] = sd.get("D1", 0)
+        item["D2"] = sd.get("D2", 0)
+        item["D3"] = sd.get("D3", 0)
+        item["D4"] = sd.get("D4", 0)
+        ss = item.get("scenario_scores", {})
+        item["overall"] = ss.get("default", item.get("reference_score", 0))
 
-    total = len(items)
     return jsonify({
         "keyword": keyword,
         "industry": industry,
         "style": style,
-        "total": total,
+        "total": len(items),
         "page": page,
-        "count": len(results),
+        "count": len(scored_items),
         "llm_enabled": llm_results is not None,
-        "videos": results,
+        "videos": scored_items,
     })
 
 
 @app.route("/api/evaluate")
 def api_evaluate():
-    """获取单条视频的算法评分 + 本地summary（快速模式）"""
-    article_id = request.args.get("id", "").strip()
-    industry = request.args.get("industry", "").strip()
-    style = request.args.get("style", "").strip()
-
-    if not article_id:
-        return jsonify({"error": "请提供视频ID"}), 400
-
+    """获取单条视频的算法评分 + 4A ECD 深度审计（L2 级）"""
     try:
-        detail = get_video_detail(int(article_id))
+        article_id = request.args.get("id", "").strip()
+        industry = request.args.get("industry", "").strip()
+        style = request.args.get("style", "").strip()
+
+        if not article_id:
+            return jsonify({"error": "请提供视频ID"}), 400
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "请登录后查看深度审计"}), 401
+            
+        if not current_user.is_member:
+            return jsonify({"error": "深度审计报告 (L2级) 为 Pro 专属功能", "upgrade_required": True}), 403
+
+        # 尝试清理 ID (防止包含非数字字符)
+        clean_id = "".join(filter(str.isdigit, article_id))
+        if not clean_id:
+            return jsonify({"error": "视频 ID 格式错误"}), 400
+
+        try:
+            detail = get_video_detail(int(clean_id))
+        except Exception as e:
+            print(f"[api_evaluate] get_video_detail failed for {clean_id}: {e}")
+            return jsonify({"error": f"获取视频详情失败: {str(e)}"}), 500
+
+        if not detail:
+            return jsonify({"error": "未能获取到该视频的详细信息"}), 404
+
+        # 1. 多维评分 D1-D4
+        try:
+            evaluation = build_full_evaluation(detail)
+            scores = evaluation["scores"]
+        except Exception as e:
+            print(f"[api_evaluate] build_full_evaluation failed: {e}")
+            evaluation = None
+            scores = {"D1_audience_reception": {"score": 5.0}, "D2_commercial_value": {"score": 5.0},
+                      "D3_team_professionalism": {"score": 5.0}, "D4_freshness": {"score": 5.0}}
+
+        # 2. 调用 LLM 进行 ECD 模式审计
+        try:
+            ecd_report = evaluate_batch_with_llm([detail], industry, style, mode="ecd")
+        except Exception as e:
+            print(f"[api_evaluate] evaluate_batch_with_llm failed: {e}")
+            ecd_report = None
+
+        if not ecd_report:
+            summary, key_elements = generate_local_summary(detail, industry)
+            ecd_report = f"### 审计中断\n系统繁忙或 AI 配置未就绪，请稍后再试。\n\n**本地初筛摘要：**\n{summary}"
+
+        # 提取扁平化分数用于前端
+        flat_scores = {}
+        for dim_key, dim_data in scores.items():
+            if isinstance(dim_data, dict):
+                flat_scores[dim_key] = dim_data.get("score", 0)
+            else:
+                flat_scores[dim_key] = dim_data
+
+        return jsonify({
+            "id": detail.get("id"),
+            "title": detail.get("title"),
+            "scores": flat_scores,
+            "score_details": scores,
+            "scenarios": evaluation.get("scenarios", {}) if evaluation else {},
+            "pool_info": evaluation.get("pool_info", {}) if evaluation else {},
+            "ecd_report": ecd_report,
+            "web_url": detail.get("web_url", "")
+        })
     except Exception as e:
-        return jsonify({"error": f"获取视频失败: {str(e)}"}), 500
-
-    scores = evaluate_video(detail, industry, style)
-    summary, key_elements = generate_local_summary(detail, industry)
-
-    return jsonify({
-        "id": detail.get("id"),
-        "title": detail.get("title"),
-        "scores": scores,
-        "summary": summary,
-        "key_elements": key_elements,
-    })
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"系统内部错误: {str(e)}"}), 500
 
 
 if __name__ == "__main__":

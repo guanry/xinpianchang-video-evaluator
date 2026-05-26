@@ -15,13 +15,18 @@ if sys.platform == "win32":
     except:
         pass
 
-API_BASE = "https://apis.netstart.cn/xpc"
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+API_BASE = "https://www.xinpianchang.com/api/xpc/v2"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer": "https://www.xinpianchang.com/",
+}
 
 
 def extract_article_id(url_or_id):
     """从URL或纯数字ID中提取article_id"""
-    if isinstance(url_or_id, int) or url_or_id.isdigit():
+    if isinstance(url_or_id, int):
+        return str(url_or_id)
+    if isinstance(url_or_id, str) and url_or_id.isdigit():
         return url_or_id
     # 从URL提取: https://www.xinpianchang.com/a13266271 -> 13266271
     m = re.search(r'/a(\d+)', url_or_id)
@@ -36,21 +41,57 @@ def extract_article_id(url_or_id):
 def get_article(article_id, from_pc=False):
     """获取视频文章详情"""
     url = f"{API_BASE}/article/{article_id}"
-    params = {"from": "pc"} if from_pc else {}
+    params = {}
+    if from_pc:
+        params["from"] = "pc"
     resp = requests.get(url, params=params, headers=HEADERS, timeout=30)
     resp.raise_for_status()
     data = resp.json()
-    if data.get("status") != 0:
-        raise Exception(f"API Error: code={data.get('code')} message={data.get('message')}")
-    return data["data"]
+    # v2 API 响应格式：直接返回 data 或包裹在 {status, data} 中
+    if "status" in data and "data" in data:
+        if data.get("status") != 0:
+            raise Exception(f"API Error: code={data.get('code')} message={data.get('message')}")
+        return data["data"]
+    # 直接返回的 data
+    return data
+
+
+def search_videos(keyword: str = "", page: int = 1, cate_id: str = None,
+                  duration: str = None, screen_type: str = None,
+                  sort: str = "hot") -> list:
+    """搜索视频，返回 list"""
+    url = f"{API_BASE}/search"
+    params = {"type": "article", "sort": sort, "page": page}
+    if keyword:
+        params["kw"] = keyword
+    if cate_id:
+        params["cate_id"] = cate_id
+    if duration:
+        params["duration"] = duration
+    if screen_type:
+        params["screen_type"] = screen_type
+
+    resp = requests.get(url, params=params, headers=HEADERS, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    # v2 API 响应格式
+    if "status" in data and "data" in data:
+        if data.get("status") != 0:
+            return []
+        return data["data"].get("list", [])
+    # 直接格式
+    return data.get("list", data if isinstance(data, list) else [])
 
 
 def get_comments(article_id, page=1):
     """获取视频评论"""
-    url = f"{API_BASE}/comments"
-    params = {"resource_id": article_id, "type": "article", "page": page}
+    url = f"{API_BASE}/article/{article_id}/comments"
+    params = {"page": page}
     resp = requests.get(url, params=params, headers=HEADERS, timeout=30)
-    return resp.json()
+    data = resp.json()
+    if "status" in data and "data" in data:
+        return data["data"]
+    return data
 
 
 def get_related(article_id):
@@ -134,7 +175,7 @@ def scrape(url_or_id):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="视频信息抓取器")
-    parser.add_argument("url_or_id", nargs="?", default="13266271", help="视频URL或ID")
+    parser.add_argument("url_or_id", nargs="?", default="13615873", help="视频URL或ID")
     parser.add_argument("--json", "-j", action="store_true", help="输出原始JSON")
     parser.add_argument("--save", "-s", type=str, help="保存到指定文件")
     args = parser.parse_args()
