@@ -620,16 +620,12 @@ def c_eye_l1_fast_scorer(videos: list, industry: str = "") -> list:
         elif any(x in tags for x in ["混剪", "快节奏"]):
             narrative_mode = "视觉碎片蒙太奇"
 
+        # 使用与 L2 统一的 _STYLE_KEYWORD_MAP
         visual_style = "标准商业调性"
         tag_str = "".join(tags)
-        if any(x in tag_str for x in ["胶片", "复古", "老电影"]):
-            visual_style = "胶片复古风"
-        elif any(x in tag_str for x in ["赛博", "科技", "硬核"]):
-            visual_style = "赛博数字重金属"
-        elif any(x in tag_str for x in ["极简", "高级", "冷淡"]):
-            visual_style = "高智感都市冷淡风"
-        elif any(x in tag_str for x in ["CG", "三维", "特效"]):
-            visual_style = "超现实数字资产"
+        for kw, style_name in _STYLE_KEYWORD_MAP.items():
+            if kw in tag_str and visual_style == "标准商业调性":
+                visual_style = style_name
 
         concept_asset = f"{narrative_mode} + {visual_style}"
 
@@ -671,10 +667,12 @@ def c_eye_l1_fast_scorer(videos: list, industry: str = "") -> list:
         author = item.get("author", {})
         vip_level = author.get("userinfo", {}).get("vip_flag", 0) if isinstance(author, dict) else 0
 
-        if vip_level >= 3 or team_len > 10:
+        # 与 L2 _extract_l2_rule_based 共用统一阈值
+        quality = item.get("quality", 3) or 3
+        if (vip_level >= 3 or quality >= 4) and team_len >= 15:
             budget_class = "A级 (百万级大制作)"
             soul_part = "导演组/美术置景"
-        elif team_len > 4:
+        elif team_len >= 8 or quality >= 3:
             budget_class = "B级 (30-50万标准TVC)"
             soul_part = "剪辑/后期调色"
         else:
@@ -887,11 +885,12 @@ _MOOD_KEYWORD_MAP = {
 }
 
 
-def extract_l2_metadata(video: dict, industry: str = "", style_preference: str = "") -> dict:
+def extract_l2_metadata(video: dict, industry: str = "", style_preference: str = "",
+                        l1_data: dict = None) -> dict:
     """M1: 从视频元数据中提取 L2 级结构化信息（品牌/风格/情绪/预算）
 
     优先使用 LLM 推理，LLM 不可用时回退到规则匹配。
-    返回包含 brand, visual_style, mood, budget_tier 等字段的字典。
+    接收 L1 数据复用已有推断，避免独立重复分析。
     """
     provider, client = _get_llm_client()
     if provider and client:
@@ -899,7 +898,7 @@ def extract_l2_metadata(video: dict, industry: str = "", style_preference: str =
         if result:
             return result
 
-    return _extract_l2_rule_based(video, industry, style_preference)
+    return _extract_l2_rule_based(video, industry, style_preference, l1_data)
 
 
 def _extract_l2_with_llm(video, industry, style_preference, provider, client):
@@ -958,8 +957,8 @@ def _extract_l2_with_llm(video, industry, style_preference, provider, client):
     return None
 
 
-def _extract_l2_rule_based(video, industry="", style_preference=""):
-    """规则匹配回退：从标签/分类/团队推断 L2 元数据"""
+def _extract_l2_rule_based(video, industry="", style_preference="", l1_data=None):
+    """规则匹配回退：从标签/分类/团队推断 L2 元数据。复用 L1 已有推断。"""
     title = video.get("title", "") or ""
     tags = [t.get("name", "") for t in (video.get("tags") or [])]
     tag_str = " ".join(tags)
@@ -993,12 +992,13 @@ def _extract_l2_rule_based(video, industry="", style_preference=""):
     # 行业推断
     inferred_industry = industry or sub_cat or main_cat or "通用"
 
-    # 视觉风格推断
-    visual_style = "标准商业调性"
+    # 视觉风格推断 — 优先复用 L1 已有结论
+    l1_dimensions = (l1_data or {}).get("dimensions", {}) or {}
+    visual_style = l1_dimensions.get("visual_style", "") or "标准商业调性"
     style_keywords = []
     for kw, style_name in _STYLE_KEYWORD_MAP.items():
         if kw in title or kw in tag_str:
-            if not visual_style or visual_style == "标准商业调性":
+            if visual_style == "标准商业调性" or not visual_style:
                 visual_style = style_name
             if len(style_keywords) < 4:
                 style_keywords.append(style_name)
@@ -1038,6 +1038,30 @@ def _extract_l2_rule_based(video, industry="", style_preference=""):
         budget_tier = "C级（10万内轻量执行）"
         budget_reasoning = f"{team_len}人团队"
 
+    # 目标受众推断
+    target_audience = "品牌方/广告主"
+    if any(kw in tag_str for kw in ["VLOG", "探店", "测评", "开箱"]):
+        target_audience = "C端消费者"
+    elif any(kw in tag_str for kw in ["宣传片", "企业", "年会", "招聘"]):
+        target_audience = "B端企业客户"
+    elif any(kw in tag_str for kw in ["MV", "微电影", "剧情", "短片"]):
+        target_audience = "泛娱乐观众"
+    elif any(kw in tag_str for kw in ["教程", "知识", "科普"]):
+        target_audience = "学习者/从业者"
+
+    # 导演专长推断
+    creator_specialty = "商业广告制作"
+    if any(kw in tag_str for kw in ["动画", "CG", "三维", "特效"]):
+        creator_specialty = "CG/动画/视效"
+    elif any(kw in tag_str for kw in ["航拍", "延时", "风光"]):
+        creator_specialty = "航拍/延时摄影"
+    elif any(kw in tag_str for kw in ["剧情", "微电影", "故事"]):
+        creator_specialty = "剧情/故事片"
+    elif any(kw in tag_str for kw in ["快剪", "混剪", "节奏"]):
+        creator_specialty = "快节奏剪辑/信息流"
+    elif any(kw in tag_str for kw in ["产品", "TVC", "广告"]):
+        creator_specialty = "产品广告/TVC"
+
     return {
         "brand": brand,
         "brand_tier": brand_tier,
@@ -1050,7 +1074,9 @@ def _extract_l2_rule_based(video, industry="", style_preference=""):
         "mood_keywords": mood_keywords[:3],
         "budget_tier": budget_tier,
         "budget_reasoning": budget_reasoning,
-        "_source": "rule_based",
+        "target_audience": target_audience,
+        "creator_specialty": creator_specialty,
+        "_fallback": True,
     }
 
 
@@ -1353,15 +1379,19 @@ def analyze_creator_profile(video: dict) -> dict:
     # 层级判定
     if tier_score >= 8.0:
         tier = "头部创作者"
+        tier_label = "头部"
         tier_icon = "diamond"
     elif tier_score >= 5.5:
         tier = "腰部创作者"
+        tier_label = "腰部"
         tier_icon = "gold"
     elif tier_score >= 3.0:
         tier = "上升创作者"
+        tier_label = "上升"
         tier_icon = "rising"
     else:
         tier = "新兴创作者"
+        tier_label = "新兴"
         tier_icon = "new"
 
     # 风格标签推断
@@ -1388,15 +1418,69 @@ def analyze_creator_profile(video: dict) -> dict:
     # 质量一致性
     quality_consistency = round(recommend_rate / 0.5, 2) if recommend_rate > 0 else 0.3
     quality_consistency = min(1.0, quality_consistency)
+    if quality_consistency >= 0.8:
+        consistency_label = "高"
+    elif quality_consistency >= 0.5:
+        consistency_label = "中"
+    else:
+        consistency_label = "低"
+
+    # 品类专精
+    cats = video.get("categories") or []
+    primary_cat = cats[0].get("category_name", "") if cats else ""
+    sub_cat = cats[0].get("sub", {}).get("category_name", "") if cats else ""
+
+    # 合作模式
+    if team_len >= 15:
+        collaboration_pattern = "大型团队协作"
+    elif team_len >= 5:
+        collaboration_pattern = "中小团队"
+    else:
+        collaboration_pattern = "独立/小团队"
+
+    # 定价参考（基于层级和粉丝）
+    if tier_label == "头部":
+        pricing_reference = "15-50万/条"
+    elif tier_label == "腰部":
+        pricing_reference = "5-15万/条"
+    elif tier_label == "上升":
+        pricing_reference = "1-5万/条"
+    else:
+        pricing_reference = "5千-2万/条"
+
+    # 洞察
+    insights = []
+    if follower_count > 50000:
+        insights.append(f"粉丝基础雄厚 ({follower_count:,})")
+    if recommend_rate > 0.3:
+        insights.append("作品推荐率远高于平台均值")
+    if vip_flag >= 3:
+        insights.append("平台认证优质创作者")
+    if not insights:
+        insights.append("数据积累中，潜力有待观察")
 
     return {
         "username": username,
         "occupation": occupation,
         "tier": tier,
+        "tier_label": tier_label,
         "tier_icon": tier_icon,
         "tier_score": tier_score,
         "style_tags": style_tags[:4],
         "quality_consistency": quality_consistency,
+        "consistency_label": consistency_label,
+        "stats": {
+            "follower_count": follower_count,
+            "article_count": article_count,
+            "popularity": popularity,
+        },
+        "specialization": {
+            "primary": primary_cat,
+            "label": sub_cat,
+        },
+        "collaboration_pattern": collaboration_pattern,
+        "pricing_reference": pricing_reference,
+        "insights": insights,
         "signals": {
             "follower_count": follower_count,
             "popularity": popularity,

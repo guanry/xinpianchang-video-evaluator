@@ -64,3 +64,15 @@ class VideoRecord(db.Model):
         """检查数据是否超过指定小时未更新（默认24小时）"""
         delta = datetime.utcnow() - self.last_updated
         return delta.total_seconds() > hours * 3600
+
+
+class SearchCache(db.Model):
+    """缓存搜索结果，避免重复调 API + 重算 L1"""
+    id = db.Column(db.Integer, primary_key=True)
+    query_hash = db.Column(db.String(64), unique=True, nullable=False)  # SHA256 of kw+page+filters
+    results_json = db.Column(db.Text)  # 缓存完整搜索结果 JSON
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def is_stale(self, hours=24):
+        delta = datetime.utcnow() - self.created_at
+        return delta.total_seconds() > hours * 3600

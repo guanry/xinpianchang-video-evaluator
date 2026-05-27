@@ -1285,15 +1285,14 @@ function renderL2Metadata(l2, m2) {
   }
 
   // Meta chips row: brand, tier, industry, commercial type, budget, engagement
-  const brand = l2.brand || {};
   const chips = [];
-  if (brand.name) chips.push(`<span class="l2-chip primary">${escHtml(brand.name)}</span>`);
-  if (brand.tier && brand.tier !== 'unknown') chips.push(`<span class="l2-chip">${escHtml(brand.tier)}</span>`);
+  if (l2.brand) chips.push(`<span class="l2-chip primary">${escHtml(l2.brand)}</span>`);
+  if (l2.brand_tier && l2.brand_tier !== 'unknown') chips.push(`<span class="l2-chip">${escHtml(l2.brand_tier)}</span>`);
   if (l2.industry) chips.push(`<span class="l2-chip">${escHtml(l2.industry)}</span>`);
   if (l2.commercial_type && l2.commercial_type !== '其他') chips.push(`<span class="l2-chip accent">${escHtml(l2.commercial_type)}</span>`);
-  if (l2.budget_tier) chips.push(`<span class="l2-chip warn">${escHtml(l2.budget_tier)}级制作</span>`);
+  if (l2.budget_tier) chips.push(`<span class="l2-chip warn">${escHtml(l2.budget_tier)}</span>`);
   if (l2.engagement_type) {
-    const conf = l2.engagement_confidence ? ` ${Math.round(l2.engagement_confidence * 100)}%` : '';
+    const conf = l2.engagement_confidence != null ? ` ${Math.round(l2.engagement_confidence * 100)}%` : '';
     chips.push(`<span class="l2-chip accent">${escHtml(l2.engagement_type)}${conf}</span>`);
   }
   document.getElementById('l2MetaRow').innerHTML = chips.join('');
@@ -1343,19 +1342,14 @@ function renderM2Results(m2) {
 
   // Quality prediction bar
   const qp = m2.quality_prediction;
-  if (qp && qp.score !== undefined) {
+  if (qp && qp.predicted_score !== undefined) {
     const wrap = document.getElementById('m2QualityWrap');
     wrap.style.display = 'flex';
     const fill = document.getElementById('m2QualityFill');
-    const pct = Math.round(qp.score * 10);
+    const pct = Math.round(qp.predicted_score * 10);
     fill.style.width = pct + '%';
-    fill.className = 'm2-quality-fill ' + (qp.score >= 7.5 ? 'high' : qp.score >= 5 ? 'mid' : 'low');
-    document.getElementById('m2QualityVal').textContent = qp.score.toFixed(1);
-    if (qp.confidence === 'low') {
-      document.getElementById('m2QualityVal').style.opacity = '0.6';
-    } else {
-      document.getElementById('m2QualityVal').style.opacity = '1';
-    }
+    fill.className = 'm2-quality-fill ' + (qp.predicted_score >= 7.5 ? 'high' : qp.predicted_score >= 5 ? 'mid' : 'low');
+    document.getElementById('m2QualityVal').textContent = qp.predicted_score.toFixed(1);
   } else {
     document.getElementById('m2QualityWrap').style.display = 'none';
   }

@@ -2,7 +2,7 @@
 """
 视频创意 AI 评价平台 — Flask Web 应用
 """
-import json, time, os, sys
+import json, time, os, sys, hashlib
 from flask import Flask, request, jsonify, render_template, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
@@ -20,7 +20,7 @@ app.config['SECRET_KEY'] = 'your-secret-key-here'  # Change this in production
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-from models import db, User, Favorite, Comment, VideoRecord
+from models import db, User, Favorite, Comment, VideoRecord, SearchCache
 
 bcrypt = Bcrypt(app)
 db.init_app(app)
@@ -393,6 +393,23 @@ def api_search():
     if not current_user.is_authenticated:
         return jsonify({"error": "请先登录系统以执行审计任务", "auth_required": True}), 401
 
+    # 计算缓存 key（区分 Pro/免费用户，因为 LLM 摘要不同）
+    cache_raw = json.dumps([keyword, page, sorted(filters.items()),
+                            current_user.is_member], ensure_ascii=False)
+    cache_hash = hashlib.sha256(cache_raw.encode()).hexdigest()
+
+    # 检查搜索缓存
+    cached = SearchCache.query.filter_by(query_hash=cache_hash).first()
+    if cached and not cached.is_stale():
+        print(f"[cache] Search hit for '{keyword}' page={page}")
+        data = json.loads(cached.results_json)
+        # 刷新当前用户的收藏状态
+        favorite_ids = set(f.video_id for f in Favorite.query.filter_by(
+            user_id=current_user.id).all())
+        for v in data.get("videos", []):
+            v["is_favorite"] = str(v.get("id", "")) in favorite_ids
+        return jsonify(data)
+
     try:
         items = search_videos(keyword, page, filters)
     except Exception as e:
@@ -456,7 +473,7 @@ def api_search():
     except Exception as e:
         print(f"[api_search] trend detection failed: {e}")
 
-    return jsonify({
+    result = {
         "keyword": keyword,
         "industry": industry,
         "style": style,
@@ -467,7 +484,22 @@ def api_search():
         "videos": scored_items,
         "trends": trend_signals,
         "indexed_count": get_index().size if trend_signals else 0,
-    })
+    }
+
+    # 写入搜索缓存（24h TTL）
+    try:
+        entry = SearchCache.query.filter_by(query_hash=cache_hash).first()
+        if not entry:
+            entry = SearchCache(query_hash=cache_hash)
+        entry.results_json = json.dumps(result, ensure_ascii=False)
+        entry.created_at = datetime.utcnow()
+        db.session.add(entry)
+        db.session.commit()
+        print(f"[cache] Search saved for '{keyword}' page={page}")
+    except Exception as e:
+        print(f"[cache] Search save failed: {e}")
+
+    return jsonify(result)
 
 
 @app.route("/api/evaluate")
@@ -518,8 +550,9 @@ def api_evaluate():
                     "similar_works": get_index().find_similar(record.id, top_k=5),
                     "creator_profile": json.loads(record.creator_profile) if record.creator_profile else None,
                     "synthesis": json.loads(record.synthesis) if record.synthesis else None,
-                    "l3_gemini_report": record.l3_gemini_report,
-                    "l3_structured_data": json.loads(record.l3_structured_data) if record.l3_structured_data else None,
+                    # L3 暂禁用 — 不返回旧缓存数据
+                    "l3_gemini_report": None,
+                    "l3_structured_data": None,
                     "web_url": detail.get("web_url", ""),
                     "cached_ai": True,
                     "ai_evaluated_at": record.ai_evaluated_at.strftime("%Y-%m-%d %H:%M:%S") if record.ai_evaluated_at else None
@@ -557,9 +590,10 @@ def api_evaluate():
         # 3. L2 AI 元数据提取（模块1：LLM 推理）
         l2_metadata = None
         try:
-            l2_metadata = extract_l2_metadata(detail, industry, style)
+            l2_metadata = extract_l2_metadata(detail, industry, style, l1_data=scores)
             if l2_metadata and m2_results:
                 l2_metadata["engagement_type"] = m2_results["engagement"]["type"]
+                l2_metadata["engagement_confidence"] = m2_results["engagement"].get("confidence", 0.5)
         except Exception as e:
             print(f"[api_evaluate] extract_l2_metadata failed: {e}")
 
@@ -590,12 +624,13 @@ def api_evaluate():
         except Exception as e:
             print(f"[api_evaluate] creator_profile failed: {e}")
 
-        # 7. Gemini L3 深度视听审计 (移到 M6 之前，注入 L2 元数据避免矛盾)
+        # 7. Gemini L3 深度视听审计 (暂禁用 — 无视频文件时产生幻觉)
+        # TODO: 视频下载+抽帧打通后重新启用
         l3_results = None
-        try:
-            l3_results = evaluate_with_gemini_l3(detail, l2_metadata=l2_metadata)
-        except Exception as e:
-            print(f"[api_evaluate] Gemini L3 failed: {e}")
+        # try:
+        #     l3_results = evaluate_with_gemini_l3(detail, l2_metadata=l2_metadata)
+        # except Exception as e:
+        #     print(f"[api_evaluate] Gemini L3 failed: {e}")
 
         # 8. 跨维度综合推理 (融合 L1/L2/L3/M2/M4/M5 全部信号)
         synthesis = None
@@ -615,9 +650,10 @@ def api_evaluate():
                 rec.synthesis = json.dumps(synthesis) if synthesis else None
                 rec.creator_profile = json.dumps(creator_profile) if creator_profile else None
                 
-                if l3_results:
-                    rec.l3_gemini_report = l3_results.get("report")
-                    rec.l3_structured_data = json.dumps(l3_results.get("structured_data"))
+                # L3 暂禁用
+                # if l3_results:
+                #     rec.l3_gemini_report = l3_results.get("report")
+                #     rec.l3_structured_data = json.dumps(l3_results.get("structured_data"))
                 
                 rec.ai_evaluated_at = datetime.utcnow()
                 db.session.commit()
