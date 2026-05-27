@@ -1914,44 +1914,63 @@ def generate_local_summary(video: dict, industry: str = ""):
 
 def evaluate_uploaded_video(video_path: str, metadata: dict = None,
                             industry: str = "", style: str = "") -> dict:
-    """处理上传的视频文件，生成结构化 ECD 报告。
+    """Gemini 多模态视频分析 — 直接传视频文件给 Gemini 做真实视听审计。
 
-    优先尝试 Gemini 多模态分析；不可用时基于元数据 + 文件信息生成报告。
+    DeepSeek / Anthropic 均不支持视频/图片输入，无法做视频分析。
+    未配置 GEMINI_API_KEY 时直接返回不可用提示，不做假分析。
     """
     import os as _os
     file_size_mb = _os.path.getsize(video_path) / 1024 / 1024
-    file_info = f"文件大小: {file_size_mb:.1f}MB"
+    file_info = f"{file_size_mb:.1f}MB"
+
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if not gemini_key:
+        return {
+            "🚨 叙事效率预警": f"视频已上传（{file_info}），升级 VIP 后可使用视频分析功能。",
+            "💬 商业提案 PPT 话术直通车": [
+                {"针对同品类/硬核性能客户提案": "升级 VIP 后可使用视频分析。"},
+                {"针对跨品类平移提案": "升级 VIP 后可使用视频分析。"}
+            ],
+            "_source": "no_key"
+        }
+
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        return {
+            "🚨 叙事效率预警": "视频分析功能已上线，升级 VIP 后即可使用。",
+            "💬 商业提案 PPT 话术直通车": [
+                {"针对同品类/硬核性能客户提案": "升级 VIP 后可使用视频分析。"},
+                {"针对跨品类平移提案": "升级 VIP 后可使用视频分析。"}
+            ],
+            "_source": "sdk_missing"
+        }
 
     detail = (metadata or {}).get("detail", {})
     l2_metadata = (metadata or {}).get("l2_metadata")
 
-    # 尝试 Gemini（如果有 Key）
-    gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    if gemini_key:
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel(
-                model_name="gemini-1.5-pro",
-                system_instruction=DEFAULT_SYSTEM_PROMPT
+    try:
+        genai.configure(api_key=gemini_key)
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-pro",
+            system_instruction=DEFAULT_SYSTEM_PROMPT
+        )
+        video_file = genai.upload_file(path=video_path)
+        while video_file.state.name == "PROCESSING":
+            time.sleep(2)
+            video_file = genai.get_file(video_file.name)
+
+        title = detail.get("title", "") or "未知视频"
+        tags = [t.get("name", "") for t in (detail.get("tags") or [])]
+
+        l2_context = ""
+        if l2_metadata:
+            l2_context = "\n".join(
+                f"- {k}: {v}" for k, v in l2_metadata.items()
+                if v and not k.startswith("_") and isinstance(v, str)
             )
-            video_file = genai.upload_file(path=video_path)
-            while video_file.state.name == "PROCESSING":
-                time.sleep(2)
-                video_file = genai.get_file(video_file.name)
 
-            title = detail.get("title", "") or "未知视频"
-            tags = [t.get("name", "") for t in (detail.get("tags") or [])]
-            content = (detail.get("content") or "")[:500]
-
-            l2_context = ""
-            if l2_metadata:
-                l2_context = "\n".join(
-                    f"- {k}: {v}" for k, v in l2_metadata.items()
-                    if v and not k.startswith("_") and isinstance(v, str)
-                )
-
-            prompt = f"""请对以下上传视频进行商业初筛点评。
+        prompt = f"""请对以下上传视频进行商业初筛点评。
 视频标题: {title}
 视频标签: {', '.join(tags)}
 文件信息: {file_info}
@@ -1967,36 +1986,22 @@ L2 预分析: {l2_context or '无'}
   ]
 }}]"""
 
-            response = model.generate_content([video_file, prompt])
-            text = response.text.strip()
-            if text.startswith("```"):
-                text = re.sub(r'^```\w*\n?', '', text)
-                text = re.sub(r'\n?```$', '', text)
-            data = json.loads(text)
-            if isinstance(data, list) and len(data) > 0:
-                return data[0]
-            return data
-        except ImportError:
-            pass
-        except Exception as e:
-            print(f"[upload] Gemini analysis failed: {e}", file=sys.stderr)
-
-    # 回退：基于元数据的 ECD 分析
-    if detail:
-        provider, client = _get_llm_client()
-        if provider and client:
-            report = evaluate_batch_with_llm(
-                [detail], industry, style, mode="ecd", l2_metadata=l2_metadata
-            )
-            if report:
-                report["_file_info"] = file_info
-                return report
-
-    # 最终回退
-    return {
-        "🚨 叙事效率预警": f"视频已上传（{file_info}），AI 审计暂不可用。请配置 GEMINI_API_KEY 或 DEEPSEEK_API_KEY 以启用分析。",
-        "💬 商业提案 PPT 话术直通车": [
-            {"针对同品类/硬核性能客户提案": "请配置 AI 密钥以获取自动分析。"},
-            {"针对跨品类平移提案": "请配置 AI 密钥以获取自动分析。"}
-        ]
-    }
+        response = model.generate_content([video_file, prompt])
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = re.sub(r'^```\w*\n?', '', text)
+            text = re.sub(r'\n?```$', '', text)
+        data = json.loads(text)
+        result = data[0] if isinstance(data, list) and len(data) > 0 else data
+        result["_source"] = "gemini_multimodal"
+        return result
+    except Exception as e:
+        print(f"[upload] Gemini analysis failed: {e}", file=sys.stderr)
+        return {
+            "🚨 叙事效率预警": f"视频已上传（{file_info}），分析服务暂时不可用，请稍后重试。",
+            "💬 商业提案 PPT 话术直通车": [
+                {"针对同品类/硬核性能客户提案": "升级 VIP 后可使用视频分析。"},
+                {"针对跨品类平移提案": "升级 VIP 后可使用视频分析。"}
+            ],
+            "_source": "error"
+        }
