@@ -841,14 +841,19 @@ def build_ecd_audit_prompt(video: dict, industry: str, style_preference: str, l2
 4. 字数限制：整体点评控制在 300 字内。
 5. 如果 L2 元数据已给出品牌/风格/情绪推断，请在其基础上深化商业解读，而不是重复描述。
 
-【响应格式】(必须严格按下述 Markdown 格式输出)
+【响应格式】(必须严格按下述 JSON 格式输出，仅JSON数组无其他文字)
 
-### 🚨 叙事效率预警 (Efficiency Alert)
-[此处点评「黄金前3秒」的吸睛抓手（Hook）强不强。明确指出平移到「抖音/小红书/B站信息流」或「分众电梯媒体」投放时的品牌风险与前置转化率预测。]
-
-### 💬 商业提案 PPT 话术直通车 (Pitching Keywords)
-1. **针对同品类/硬核性能客户提案：** "本方案将参考本片【此处结合视频标签填入核心视觉资产词】，利用【此处填入视效/剪辑特征】在开篇3秒内剥夺用户注意力..."
-2. **针对跨品类平移（如将调性平移给{industry or '跨品类'}）提案：** "我们打破常规，尝试将本片特有的【情绪词】跨界注入到本次品类中，用高级的【调性词】为品牌筑起护城河..."
+[{{
+  "🚨 叙事效率预警": "点评黄金前3秒的吸睛抓手(Hook)强不强、平移信息流投放风险、前置转化率预测。80-120字。",
+  "💬 商业提案 PPT 话术直通车": [
+    {{
+      "针对同品类/硬核性能客户提案": "参考本片【核心视觉资产】，利用【视效/剪辑特征】在开篇3秒内剥夺用户注意力的提案话术。60-80字。"
+    }},
+    {{
+      "针对跨品类平移（{industry or '跨品类'}）提案": "将本片特有的【情绪词】跨界注入品类，用高级的【调性词】为品牌筑起护城河的提案话术。60-80字。"
+    }}
+  ]
+}}]
 """
     return prompt
 
@@ -1623,8 +1628,7 @@ def detect_search_trends(items: list, emb_idx=None) -> dict:
 
 def build_m6_synthesis(video: dict, l1_scores: dict = None, l2_metadata: dict = None,
                        m2_results: dict = None, similar_works: list = None,
-                       creator_profile: dict = None, trends: dict = None,
-                       l3_results: dict = None) -> str:
+                       creator_profile: dict = None, trends: dict = None) -> str:
     """M6: 融合所有模块输出，生成自然语言综合洞察
 
     基于模板引擎将 L1/L2/M2/M4/M5 的所有信号融合为一段可读的
@@ -1724,21 +1728,6 @@ def build_m6_synthesis(video: dict, l1_scores: dict = None, l2_metadata: dict = 
     if budget_tier:
         parts.append(f"制作级别: {budget_tier}")
 
-    # L3 结构化数据融入
-    l3_text = ""
-    if l3_results and isinstance(l3_results, dict):
-        sd = l3_results.get("structured_data", {}) or {}
-        l3_parts = []
-        if isinstance(sd.get("shot_count"), (int, float)):
-            l3_parts.append(f"镜头统计: {sd['shot_count']}镜")
-        if isinstance(sd.get("dominant_palette"), str):
-            l3_parts.append(f"主色调: {sd['dominant_palette']}")
-        if isinstance(sd.get("attention_score"), (int, float)):
-            l3_parts.append(f"注意力评分: {sd['attention_score']}/10")
-        if l3_parts:
-            l3_text = "L3 视听审计 — " + " / ".join(l3_parts)
-            parts.append(l3_text)
-
     if similar_text:
         parts.append(similar_text)
     if trend_text:
@@ -1746,7 +1735,7 @@ def build_m6_synthesis(video: dict, l1_scores: dict = None, l2_metadata: dict = 
 
     synthesis = "。".join(p for p in parts if p) + "。"
 
-    # 生成多维度洞察 (L2 + L3 融合)
+    # 生成多维度洞察
     insights = []
     if engagement_type and engagement_type not in ("普通型", "数据不足"):
         insights.append(f"该作品属于平台定义的「{engagement_type}」作品，对广告商的参考价值高于均值")
@@ -1754,15 +1743,8 @@ def build_m6_synthesis(video: dict, l1_scores: dict = None, l2_metadata: dict = 
         insights.append("商业参考价值极高，适合作为品类提案对标案例")
     if cp and cp.get("tier") in ("头部创作者", "腰部创作者"):
         insights.append(f"创作者层级为{cp.get('tier')}，作品质量有持续保障")
-    # L3 洞察
-    if l3_results and isinstance(l3_results, dict):
-        sd = l3_results.get("structured_data", {}) or {}
-        if isinstance(sd.get("copyable_techniques"), list) and sd["copyable_techniques"]:
-            insights.append(f"可复刻技巧: {'、'.join(sd['copyable_techniques'][:3])}")
-        if isinstance(sd.get("attention_score"), (int, float)) and sd["attention_score"] >= 8:
-            insights.append(f"注意力曲线评级优秀 ({sd['attention_score']}/10)，适合投放信息流前3秒")
     if not insights:
-        insights.append("建议进一步获取视频文件进行 L3 级深层分析")
+        insights.append("建议上传视频文件以获取深度视听审计")
 
     return {
         "synthesis": synthesis,
@@ -1837,149 +1819,9 @@ def _call_anthropic(client, user_prompt: str, system_prompt: str) -> str:
     return resp.content[0].text
 
 
-def _get_gemini_client():
-    """获取 Gemini 客户端"""
-    gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    if gemini_key:
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_key)
-            return genai
-        except ImportError:
-            pass
-    return None
-
-
 DEFAULT_SYSTEM_PROMPT = "你是一位拥有20年经验的顶级4A公司创意总监、戛纳广告奖评委。你的点评必须严谨、犀利、专业，使用标准广告行业术语。只输出JSON数组，不输出markdown和任何解释文字。"
 
 L2_SYSTEM_PROMPT = "你是一位广告片分析专家，擅长从元数据中提取结构化信息。你必须严格按JSON格式输出，不输出任何解释文字或markdown。"
-
-GEMINI_L3_SYSTEM_PROMPT = """你是一位拥有20年经验的顶级4A公司创意总监、视觉审计专家、戛纳技术金奖评委。
-你的任务是根据视频文件（或详细描述）进行 L3 级别的“深度视听审计”。
-
-你必须严格遵守以下 8 个模块的分析逻辑进行输出：
-1. 核心概念资产公式：提炼作品的“视觉公式”。
-2. 黄金3秒抓手：量化分析前3秒的吸睛策略。
-3. 详细逐帧分析：精确到秒，包含景别、运镜、声音、色彩四维标注。
-4. 镜头量化统计：统计总镜头数、平均时长、景别/运镜分布、产品露出统计。
-5. 色板量化提取：分析主色调板（含占比）、色温曲线、品牌色对照。
-6. 声音分析深化：响度曲线、频谱分布、音乐结构、旁白情绪。
-7. 创作技巧分级：将技巧分为“可立即复刻”、“需要经验”、“需要专业团队”三个级别。
-8. 观众心理学预测：注意力曲线预测、认知负荷评估、记忆锚点预测。
-
-输出格式：必须包含 Markdown 格式的详细报告，并在最后附带一个 JSON 代码块，包含所有量化指标数据。"""
-
-
-def evaluate_with_gemini_l3(video: dict, video_path: str = None, l2_metadata: dict = None) -> dict:
-    """使用 Gemini 1.5 进行 L3 级深度视听审计；无 Gemini 时回退到 DeepSeek。
-    接收可选的 L2 元数据以避免独立重复推断品牌/风格/情绪。"""
-    genai = _get_gemini_client()
-
-    title = video.get("title", "")
-    content = video.get("content", "")
-    tags = [t.get("name", "") for t in (video.get("tags") or [])]
-
-    # 构建 L2 上下文块，避免 L3 独立推断导致与 ECD 报告矛盾
-    l2_context = ""
-    if l2_metadata:
-        l2_lines = []
-        brand = l2_metadata.get("brand", "")
-        brand_tier = l2_metadata.get("brand_tier", "")
-        product = l2_metadata.get("product", "")
-        visual_style = l2_metadata.get("visual_style", "")
-        mood = l2_metadata.get("mood", "")
-        budget_tier = l2_metadata.get("budget_tier", "")
-        style_keywords = l2_metadata.get("style_keywords", [])
-        commercial_type = l2_metadata.get("commercial_type", "")
-
-        if brand:
-            l2_lines.append(f"- 识别品牌: {brand} ({brand_tier})" + (f" / {product}" if product else ""))
-        if commercial_type:
-            l2_lines.append(f"- 商业片类型: {commercial_type}")
-        if visual_style:
-            l2_lines.append(f"- 视觉风格: {visual_style}")
-        if mood:
-            l2_lines.append(f"- 情绪基调: {mood}")
-        if style_keywords:
-            l2_lines.append(f"- 风格关键词: {', '.join(style_keywords)}")
-        if budget_tier:
-            l2_lines.append(f"- 制作级别: {budget_tier}")
-
-        if l2_lines:
-            l2_context = "【上游 L2 AI 元数据预分析 — 已确定，请在此基础上深化，不要推翻重来】\n" + "\n".join(l2_lines) + "\n\n"
-
-    prompt = f"""请对以下影视作品进行 L3 级深度视听审计。
-作品标题：{title}
-作品描述：{content}
-作品标签：{', '.join(tags)}
-{l2_context}
-要求：
-1. 严格按照"Gemini 视频分析报告增强建议"的 8 个模块输出。
-2. 报告必须专业、毒舌、一针见血。
-3. 包含详细的 Markdown 报告和最后的结构化 JSON 数据。
-"""
-
-    # 无 Gemini → 回退到 DeepSeek
-    if not genai:
-        provider, client = _get_llm_client()
-        if provider and client:
-            print(f"[L3] Gemini 未配置，回退到 {provider}", file=sys.stderr)
-            try:
-                text = _call_deepseek(client, prompt, GEMINI_L3_SYSTEM_PROMPT)
-                json_match = re.search(r'```json\n(.*?)\n```', text, re.DOTALL)
-                structured_data = {}
-                if json_match:
-                    try:
-                        structured_data = json.loads(json_match.group(1))
-                    except Exception:
-                        pass
-                return {
-                    "report": text,
-                    "structured_data": structured_data
-                }
-            except Exception as e:
-                print(f"[L3 DeepSeek fallback] Failed: {e}", file=sys.stderr)
-                return {"error": str(e)}
-        return {"error": "Gemini API Key 未配置，且无可用的 DeepSeek/Anthropic Key"}
-
-    try:
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-pro",
-            system_instruction=GEMINI_L3_SYSTEM_PROMPT
-        )
-
-        if video_path and os.path.exists(video_path):
-            # 如果有本地视频文件，上传并分析
-            video_file = genai.upload_file(path=video_path)
-            # 等待文件处理
-            while video_file.state.name == "PROCESSING":
-                time.sleep(2)
-                video_file = genai.get_file(video_file.name)
-            
-            response = model.generate_content([video_file, prompt])
-        else:
-            # 仅基于元数据进行深度模拟分析（L3 级增强描述）
-            response = model.generate_content(prompt)
-
-        text = response.text
-        
-        # 提取 JSON 部分
-        json_match = re.search(r'```json\n(.*?)\n```', text, re.DOTALL)
-        structured_data = {}
-        if json_match:
-            try:
-                structured_data = json.loads(json_match.group(1))
-            except:
-                pass
-        
-        return {
-            "report": text,
-            "structured_data": structured_data
-        }
-
-    except Exception as e:
-        print(f"[Gemini L3] Failed: {e}", file=sys.stderr)
-        return {"error": str(e)}
 
 
 # ============================================================
@@ -2001,7 +1843,14 @@ def evaluate_batch_with_llm(videos: list, industry: str, style_preference: str,
                 text = _call_deepseek(client, prompt, DEFAULT_SYSTEM_PROMPT)
             else:
                 text = _call_anthropic(client, prompt, DEFAULT_SYSTEM_PROMPT)
-            return text
+            text = text.strip()
+            if text.startswith("```"):
+                text = re.sub(r'^```\w*\n?', '', text)
+                text = re.sub(r'\n?```$', '', text)
+            data = json.loads(text)
+            if isinstance(data, list) and len(data) > 0:
+                return data[0]  # 返回 dict 而非 list
+            return data
         except Exception as e:
             print(f"[batch_llm ecd] Failed: {e}", file=sys.stderr)
             return None
@@ -2061,3 +1910,93 @@ def generate_local_summary(video: dict, industry: str = ""):
     summary = f"{industry_str}{cat_str}，{duration}秒{'短片' if duration < 60 else '中长片'}，{'、'.join(key_elements[:2])}。"
 
     return summary, key_elements[:5]
+
+
+def evaluate_uploaded_video(video_path: str, metadata: dict = None,
+                            industry: str = "", style: str = "") -> dict:
+    """处理上传的视频文件，生成结构化 ECD 报告。
+
+    优先尝试 Gemini 多模态分析；不可用时基于元数据 + 文件信息生成报告。
+    """
+    import os as _os
+    file_size_mb = _os.path.getsize(video_path) / 1024 / 1024
+    file_info = f"文件大小: {file_size_mb:.1f}MB"
+
+    detail = (metadata or {}).get("detail", {})
+    l2_metadata = (metadata or {}).get("l2_metadata")
+
+    # 尝试 Gemini（如果有 Key）
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if gemini_key:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel(
+                model_name="gemini-1.5-pro",
+                system_instruction=DEFAULT_SYSTEM_PROMPT
+            )
+            video_file = genai.upload_file(path=video_path)
+            while video_file.state.name == "PROCESSING":
+                time.sleep(2)
+                video_file = genai.get_file(video_file.name)
+
+            title = detail.get("title", "") or "未知视频"
+            tags = [t.get("name", "") for t in (detail.get("tags") or [])]
+            content = (detail.get("content") or "")[:500]
+
+            l2_context = ""
+            if l2_metadata:
+                l2_context = "\n".join(
+                    f"- {k}: {v}" for k, v in l2_metadata.items()
+                    if v and not k.startswith("_") and isinstance(v, str)
+                )
+
+            prompt = f"""请对以下上传视频进行商业初筛点评。
+视频标题: {title}
+视频标签: {', '.join(tags)}
+文件信息: {file_info}
+行业: {industry or '通用'} / 风格偏好: {style or '不限'}
+L2 预分析: {l2_context or '无'}
+
+输出严格 JSON:
+[{{
+  "🚨 叙事效率预警": "...",
+  "💬 商业提案 PPT 话术直通车": [
+    {{"针对同品类/硬核性能客户提案": "..."}},
+    {{"针对跨品类平移提案": "..."}}
+  ]
+}}]"""
+
+            response = model.generate_content([video_file, prompt])
+            text = response.text.strip()
+            if text.startswith("```"):
+                text = re.sub(r'^```\w*\n?', '', text)
+                text = re.sub(r'\n?```$', '', text)
+            data = json.loads(text)
+            if isinstance(data, list) and len(data) > 0:
+                return data[0]
+            return data
+        except ImportError:
+            pass
+        except Exception as e:
+            print(f"[upload] Gemini analysis failed: {e}", file=sys.stderr)
+
+    # 回退：基于元数据的 ECD 分析
+    if detail:
+        provider, client = _get_llm_client()
+        if provider and client:
+            report = evaluate_batch_with_llm(
+                [detail], industry, style, mode="ecd", l2_metadata=l2_metadata
+            )
+            if report:
+                report["_file_info"] = file_info
+                return report
+
+    # 最终回退
+    return {
+        "🚨 叙事效率预警": f"视频已上传（{file_info}），AI 审计暂不可用。请配置 GEMINI_API_KEY 或 DEEPSEEK_API_KEY 以启用分析。",
+        "💬 商业提案 PPT 话术直通车": [
+            {"针对同品类/硬核性能客户提案": "请配置 AI 密钥以获取自动分析。"},
+            {"针对跨品类平移提案": "请配置 AI 密钥以获取自动分析。"}
+        ]
+    }

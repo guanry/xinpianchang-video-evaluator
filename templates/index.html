@@ -483,17 +483,51 @@
   .detail-scenario-chip .sc-label { color: var(--text-secondary); }
   .detail-scenario-chip .sc-value { font-weight: 700; color: var(--primary); margin-left: 6px; }
 
-  .ecd-report-content { font-size: 14px; line-height: 1.7; color: var(--text); }
-  .ecd-report-content h3 { font-size: 16px; color: var(--primary); margin: 22px 0 10px; }
-  .ecd-report-content p { margin-bottom: 12px; }
-  .ecd-report-content strong { color: var(--primary); }
-  .ecd-report-content blockquote {
-    background: var(--surface-alt);
-    padding: 12px 16px;
-    border-radius: var(--radius-sm);
-    border-left: 4px solid var(--primary);
-    margin: 16px 0;
+  /* ── ECD Structured Report Cards ── */
+  .ecd-alert-card {
+    background: linear-gradient(135deg, rgba(220,38,38,0.08) 0%, rgba(220,38,38,0.02) 100%);
+    border: 1px solid rgba(220,38,38,0.2);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 16px;
   }
+  .ecd-alert-card .ecd-card-icon { font-size: 18px; margin-right: 8px; }
+  .ecd-alert-card .ecd-card-title { font-size: 15px; font-weight: 700; color: #dc2626; margin-bottom: 8px; }
+  .ecd-alert-card .ecd-card-body { font-size: 14px; line-height: 1.7; color: var(--text); }
+
+  .ecd-pitch-card {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .ecd-pitch-card:hover { border-color: var(--primary); }
+  .ecd-pitch-card .ecd-card-title { font-size: 14px; font-weight: 700; color: var(--primary); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  .ecd-pitch-card .ecd-card-body { font-size: 13px; line-height: 1.65; color: var(--text-secondary); }
+  .ecd-pitch-card .ecd-card-label { font-size: 11px; font-weight: 600; color: var(--primary); background: rgba(99,102,241,0.1); padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+
+  /* ── Video Upload Zone ── */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 16px;
+    background: var(--surface-alt);
+  }
+  .upload-zone:hover, .upload-zone.drag-over { border-color: var(--primary); background: rgba(99,102,241,0.05); }
+  .upload-zone .upload-icon { font-size: 32px; margin-bottom: 8px; }
+  .upload-zone .upload-text { font-size: 14px; color: var(--text-secondary); }
+  .upload-zone .upload-hint { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  .upload-status { font-size: 13px; text-align: center; padding: 8px; margin-bottom: 12px; border-radius: 6px; display: none; }
+  .upload-status.uploading { display: block; background: rgba(99,102,241,0.1); color: var(--primary); }
+  .upload-status.success { display: block; background: rgba(34,197,94,0.1); color: #16a34a; }
+  .upload-status.error { display: block; background: rgba(220,38,38,0.1); color: #dc2626; }
 
   /* ── L2 Metadata ── */
   .l2-section {
@@ -979,7 +1013,16 @@
         <div id="m2AnomalyFlag"></div>
         <div class="m2-signals-text" id="m2SignalsText"></div>
       </div>
-      <div id="ecdReport" class="ecd-report-content"></div>
+      <!-- Video Upload Zone -->
+      <div class="upload-zone" id="uploadZone" onclick="document.getElementById('uploadInput').click()">
+        <div class="upload-icon">🎬</div>
+        <div class="upload-text">上传视频获取详细报告</div>
+        <div class="upload-hint">支持 MP4/MOV/AVI，最大 500MB</div>
+      </div>
+      <input type="file" id="uploadInput" accept="video/*" style="display:none" onchange="handleVideoUpload(this.files[0])">
+      <div class="upload-status" id="uploadStatus"></div>
+      <!-- ECD Structured Report -->
+      <div id="ecdReport"></div>
       <div class="creator-section" id="creatorSection" style="display:none;">
         <div class="creator-header">
           <span class="creator-name" id="creatorName">-</span>
@@ -1261,7 +1304,7 @@ async function viewDetail(id) {
       renderCreatorProfile(data.creator_profile);
       renderSimilarWorks(data.similar_works);
       renderSynthesis(data.synthesis);
-      document.getElementById('ecdReport').innerHTML = marked.parse(data.ecd_report || '暂无审计报告');
+      renderEcdReport(data.ecd_report);
       document.getElementById('detailLoading').style.display = 'none';
       document.getElementById('detailContent').style.display = 'block';
     }
@@ -1535,6 +1578,101 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
 });
 
 checkAuth();
+
+// ── ECD Structured Report Rendering ──
+function renderEcdReport(report) {
+  const container = document.getElementById('ecdReport');
+  if (!report) { container.innerHTML = ''; return; }
+
+  // 兼容旧 Markdown 字符串
+  if (typeof report === 'string') {
+    container.innerHTML = '<div class="ecd-alert-card"><div class="ecd-card-title">审计报告</div><div class="ecd-card-body">' + (typeof marked !== 'undefined' ? marked.parse(report) : escHtml(report)) + '</div></div>';
+    return;
+  }
+
+  // 数组取第一项
+  const data = Array.isArray(report) ? report[0] : report;
+  if (!data || typeof data !== 'object') { container.innerHTML = ''; return; }
+
+  let html = '';
+
+  // 叙事效率预警卡片
+  const alertKey = Object.keys(data).find(k => k.includes('叙事效率') || k.includes('预警') || k.includes('Efficiency'));
+  if (alertKey && data[alertKey]) {
+    html += `<div class="ecd-alert-card">
+      <div class="ecd-card-title"><span class="ecd-card-icon">🚨</span>叙事效率预警</div>
+      <div class="ecd-card-body">${escHtml(data[alertKey])}</div>
+    </div>`;
+  }
+
+  // 商业提案卡片
+  const pitchKey = Object.keys(data).find(k => k.includes('提案') || k.includes('话术') || k.includes('Pitch'));
+  if (pitchKey && Array.isArray(data[pitchKey])) {
+    html += `<div style="font-size:15px;font-weight:700;color:var(--primary);margin:12px 0 8px;">💬 商业提案 PPT 话术直通车</div>`;
+    data[pitchKey].forEach((item, i) => {
+      const label = Object.keys(item)[0] || `提案 ${i+1}`;
+      html += `<div class="ecd-pitch-card" onclick="this.classList.toggle('expanded')">
+        <div class="ecd-card-title"><span class="ecd-card-label">${escHtml(label)}</span></div>
+        <div class="ecd-card-body">${escHtml(item[label])}</div>
+      </div>`;
+    });
+  }
+
+  container.innerHTML = html;
+
+  // 如果有 _file_info 显示文件信息
+  if (data._file_info) {
+    const status = document.getElementById('uploadStatus');
+    status.textContent = '✅ 视频分析完成 · ' + escHtml(data._file_info);
+    status.className = 'upload-status success';
+  }
+}
+
+// ── Video Upload Handler ──
+async function handleVideoUpload(file) {
+  if (!file) return;
+  const status = document.getElementById('uploadStatus');
+  status.textContent = '⏳ 正在上传分析中...';
+  status.className = 'upload-status uploading';
+
+  const formData = new FormData();
+  formData.append('video', file);
+  formData.append('industry', document.getElementById('detailIndustry')?.value || '');
+  formData.append('style', document.getElementById('detailStyle')?.value || '');
+
+  const currentId = document.getElementById('detailVideoId')?.value || '';
+  if (currentId) formData.append('video_id', currentId);
+
+  try {
+    const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+    const result = await resp.json();
+    if (resp.ok) {
+      status.textContent = '✅ 分析完成';
+      status.className = 'upload-status success';
+      renderEcdReport(result.report);
+    } else {
+      status.textContent = '❌ ' + (result.error || '上传失败');
+      status.className = 'upload-status error';
+    }
+  } catch (err) {
+    status.textContent = '❌ 网络错误: ' + err.message;
+    status.className = 'upload-status error';
+  }
+}
+
+// Drag & drop support
+document.addEventListener('DOMContentLoaded', function() {
+  const zone = document.getElementById('uploadZone');
+  if (!zone) return;
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) handleVideoUpload(file);
+  });
+});
 </script>
 </body>
 </html>

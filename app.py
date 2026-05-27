@@ -19,6 +19,9 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'  # Change this in production
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max upload
+app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 from models import db, User, Favorite, Comment, VideoRecord, SearchCache
 
@@ -68,7 +71,7 @@ from evaluate import (
     analyze_creator_profile,
     detect_search_trends,
     build_m6_synthesis,
-    evaluate_with_gemini_l3, # New L3 integration
+    evaluate_uploaded_video,
 )
 from embedding import get_index
 from scrape_video import get_article, format_detail, search_videos as scrape_search
@@ -544,15 +547,12 @@ def api_evaluate():
                     "score_details": scores,
                     "scenarios": evaluation.get("scenarios", {}) if evaluation else {},
                     "pool_info": evaluation.get("pool_info", {}) if evaluation else {},
-                    "ecd_report": record.ecd_report,
+                    "ecd_report": json.loads(record.ecd_report) if record.ecd_report else None,
                     "l2_metadata": json.loads(record.l2_metadata) if record.l2_metadata else None,
                     "m2_results": run_m2_analysis(detail), # 重新分析动态指标
                     "similar_works": get_index().find_similar(record.id, top_k=5),
                     "creator_profile": json.loads(record.creator_profile) if record.creator_profile else None,
                     "synthesis": json.loads(record.synthesis) if record.synthesis else None,
-                    # L3 暂禁用 — 不返回旧缓存数据
-                    "l3_gemini_report": None,
-                    "l3_structured_data": None,
                     "web_url": detail.get("web_url", ""),
                     "cached_ai": True,
                     "ai_evaluated_at": record.ai_evaluated_at.strftime("%Y-%m-%d %H:%M:%S") if record.ai_evaluated_at else None
@@ -606,7 +606,13 @@ def api_evaluate():
 
         if not ecd_report:
             summary, key_elements = generate_local_summary(detail, industry)
-            ecd_report = f"### 审计中断\n系统繁忙或 AI 配置未就绪，请稍后再试。\n\n**本地初筛摘要：**\n{summary}"
+            ecd_report = {
+                "🚨 叙事效率预警": "AI 审计暂不可用，请上传视频文件获取详细分析。",
+                "💬 商业提案 PPT 话术直通车": [
+                    {"针对同品类提案": f"本地初筛: {summary}"},
+                    {"针对跨品类平移提案": f"关键元素: {', '.join(key_elements[:3])}"}
+                ]
+            }
 
         # 5. 相似作品推荐
         similar_works = []
@@ -624,20 +630,12 @@ def api_evaluate():
         except Exception as e:
             print(f"[api_evaluate] creator_profile failed: {e}")
 
-        # 7. Gemini L3 深度视听审计 (暂禁用 — 无视频文件时产生幻觉)
-        # TODO: 视频下载+抽帧打通后重新启用
-        l3_results = None
-        # try:
-        #     l3_results = evaluate_with_gemini_l3(detail, l2_metadata=l2_metadata)
-        # except Exception as e:
-        #     print(f"[api_evaluate] Gemini L3 failed: {e}")
-
-        # 8. 跨维度综合推理 (融合 L1/L2/L3/M2/M4/M5 全部信号)
+        # 7. 跨维度综合推理 (融合 L1/L2/M2/M4/M5 全部信号)
         synthesis = None
         try:
             synthesis = build_m6_synthesis(detail, l1_scores=scores, l2_metadata=l2_metadata,
                                            m2_results=m2_results, similar_works=similar_works,
-                                           creator_profile=creator_profile, l3_results=l3_results)
+                                           creator_profile=creator_profile)
         except Exception as e:
             print(f"[api_evaluate] build_m6_synthesis failed: {e}")
 
@@ -645,19 +643,14 @@ def api_evaluate():
         try:
             rec = VideoRecord.query.get(clean_id)
             if rec:
-                rec.ecd_report = ecd_report
+                rec.ecd_report = json.dumps(ecd_report, ensure_ascii=False) if ecd_report else None
                 rec.l2_metadata = json.dumps(l2_metadata) if l2_metadata else None
                 rec.synthesis = json.dumps(synthesis) if synthesis else None
                 rec.creator_profile = json.dumps(creator_profile) if creator_profile else None
                 
-                # L3 暂禁用
-                # if l3_results:
-                #     rec.l3_gemini_report = l3_results.get("report")
-                #     rec.l3_structured_data = json.dumps(l3_results.get("structured_data"))
-                
                 rec.ai_evaluated_at = datetime.utcnow()
                 db.session.commit()
-                print(f"[DB] AI report (inc. L3) saved for {clean_id}")
+                print(f"[DB] AI report saved for {clean_id}")
         except Exception as e:
             print(f"[DB_SAVE_ERROR] Failed to save AI report: {e}")
 
@@ -682,14 +675,78 @@ def api_evaluate():
             "similar_works": similar_works,
             "creator_profile": creator_profile,
             "synthesis": synthesis,
-            "l3_gemini_report": l3_results.get("report") if l3_results else None,
-            "l3_structured_data": l3_results.get("structured_data") if l3_results else None,
             "web_url": detail.get("web_url", "")
         })
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"系统内部错误: {str(e)}"}), 500
+
+
+ALLOWED_EXTENSIONS = {'mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv'}
+
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+@app.route("/api/upload", methods=["POST"])
+def api_upload():
+    """上传视频文件，生成结构化 ECD 详细报告"""
+    if not current_user.is_authenticated:
+        return jsonify({"error": "请先登录"}), 401
+    if not current_user.is_member:
+        return jsonify({"error": "视频上传分析为 Pro 专属功能", "upgrade_required": True}), 403
+
+    if 'video' not in request.files:
+        return jsonify({"error": "请选择视频文件"}), 400
+
+    file = request.files['video']
+    if not file.filename:
+        return jsonify({"error": "文件名为空"}), 400
+    if not allowed_file(file.filename):
+        return jsonify({"error": f"不支持的文件格式，仅支持: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
+
+    industry = request.form.get("industry", "").strip()
+    style = request.form.get("style", "").strip()
+    video_id = request.form.get("video_id", "").strip()
+
+    # 保存文件
+    ext = file.filename.rsplit('.', 1)[1].lower()
+    safe_name = f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file.filename.encode()).hexdigest()[:8]}.{ext}"
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], safe_name)
+    file.save(filepath)
+    print(f"[upload] Saved: {filepath} ({os.path.getsize(filepath) / 1024 / 1024:.1f}MB)")
+
+    # 如果有 video_id，获取在线元数据
+    metadata = None
+    if video_id:
+        try:
+            detail = get_video_detail(int(video_id), force=False)
+            if detail:
+                l2 = extract_l2_metadata(detail, industry, style)
+                metadata = {"detail": detail, "l2_metadata": l2}
+        except Exception as e:
+            print(f"[upload] metadata fetch failed: {e}")
+
+    # 生成评估报告
+    try:
+        report = evaluate_uploaded_video(filepath, metadata, industry, style)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        # 清理上传文件
+        try:
+            os.remove(filepath)
+        except:
+            pass
+        return jsonify({"error": f"视频分析失败: {str(e)}"}), 500
+
+    return jsonify({
+        "filename": safe_name,
+        "report": report,
+        "file_size_mb": round(os.path.getsize(filepath) / 1024 / 1024, 1),
+    })
 
 
 if __name__ == "__main__":

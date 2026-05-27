@@ -53,10 +53,6 @@ class VideoRecord(db.Model):
     synthesis = db.Column(db.Text)       # 综合推理结果 (JSON)
     creator_profile = db.Column(db.Text)  # 创作者画像 (JSON)
     
-    # --- Gemini L3 视听审计 (New) ---
-    l3_gemini_report = db.Column(db.Text)     # Gemini 详细视听审计报告 (Markdown)
-    l3_structured_data = db.Column(db.Text)   # Gemini 提取的结构化量化数据 (JSON)
-    
     last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     ai_evaluated_at = db.Column(db.DateTime)  # AI 评价生成的具体时间
 
