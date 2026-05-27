@@ -3,7 +3,7 @@
 视频评价引擎：多维元数据评分 (D1-D4) + LLM 总结
 基于元数据，无需视频文件
 """
-import json, math, re, os, sys
+import json, math, re, os, sys, time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -1539,7 +1539,8 @@ def detect_search_trends(items: list, emb_idx=None) -> dict:
 
 def build_m6_synthesis(video: dict, l1_scores: dict = None, l2_metadata: dict = None,
                        m2_results: dict = None, similar_works: list = None,
-                       creator_profile: dict = None, trends: dict = None) -> str:
+                       creator_profile: dict = None, trends: dict = None,
+                       l3_results: dict = None) -> str:
     """M6: 融合所有模块输出，生成自然语言综合洞察
 
     基于模板引擎将 L1/L2/M2/M4/M5 的所有信号融合为一段可读的
@@ -1638,6 +1639,22 @@ def build_m6_synthesis(video: dict, l1_scores: dict = None, l2_metadata: dict = 
         parts.append(creator_text)
     if budget_tier:
         parts.append(f"制作级别: {budget_tier}")
+
+    # L3 结构化数据融入
+    l3_text = ""
+    if l3_results and isinstance(l3_results, dict):
+        sd = l3_results.get("structured_data", {}) or {}
+        l3_parts = []
+        if isinstance(sd.get("shot_count"), (int, float)):
+            l3_parts.append(f"镜头统计: {sd['shot_count']}镜")
+        if isinstance(sd.get("dominant_palette"), str):
+            l3_parts.append(f"主色调: {sd['dominant_palette']}")
+        if isinstance(sd.get("attention_score"), (int, float)):
+            l3_parts.append(f"注意力评分: {sd['attention_score']}/10")
+        if l3_parts:
+            l3_text = "L3 视听审计 — " + " / ".join(l3_parts)
+            parts.append(l3_text)
+
     if similar_text:
         parts.append(similar_text)
     if trend_text:
@@ -1645,7 +1662,7 @@ def build_m6_synthesis(video: dict, l1_scores: dict = None, l2_metadata: dict = 
 
     synthesis = "。".join(p for p in parts if p) + "。"
 
-    # 生成 L2 独到洞察
+    # 生成多维度洞察 (L2 + L3 融合)
     insights = []
     if engagement_type and engagement_type not in ("普通型", "数据不足"):
         insights.append(f"该作品属于平台定义的「{engagement_type}」作品，对广告商的参考价值高于均值")
@@ -1653,6 +1670,13 @@ def build_m6_synthesis(video: dict, l1_scores: dict = None, l2_metadata: dict = 
         insights.append("商业参考价值极高，适合作为品类提案对标案例")
     if cp and cp.get("tier") in ("头部创作者", "腰部创作者"):
         insights.append(f"创作者层级为{cp.get('tier')}，作品质量有持续保障")
+    # L3 洞察
+    if l3_results and isinstance(l3_results, dict):
+        sd = l3_results.get("structured_data", {}) or {}
+        if isinstance(sd.get("copyable_techniques"), list) and sd["copyable_techniques"]:
+            insights.append(f"可复刻技巧: {'、'.join(sd['copyable_techniques'][:3])}")
+        if isinstance(sd.get("attention_score"), (int, float)) and sd["attention_score"] >= 8:
+            insights.append(f"注意力曲线评级优秀 ({sd['attention_score']}/10)，适合投放信息流前3秒")
     if not insights:
         insights.append("建议进一步获取视频文件进行 L3 级深层分析")
 
@@ -1704,168 +1728,252 @@ def _get_llm_client():
     return (None, None)
 
 
+def _call_deepseek(client, user_prompt: str, system_prompt: str) -> str:
+    """调用 DeepSeek API（OpenAI 兼容接口）"""
+    resp = client.chat.completions.create(
+        model="deepseek-chat",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.7,
+        max_tokens=4096,
+    )
+    return resp.choices[0].message.content
+
+
+def _call_anthropic(client, user_prompt: str, system_prompt: str) -> str:
+    """调用 Anthropic Claude API"""
+    resp = client.messages.create(
+        model="claude-sonnet-4-6-20250514",
+        max_tokens=4096,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+    return resp.content[0].text
+
+
+def _get_gemini_client():
+    """获取 Gemini 客户端"""
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if gemini_key:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=gemini_key)
+            return genai
+        except ImportError:
+            pass
+    return None
+
+
 DEFAULT_SYSTEM_PROMPT = "你是一位拥有20年经验的顶级4A公司创意总监、戛纳广告奖评委。你的点评必须严谨、犀利、专业，使用标准广告行业术语。只输出JSON数组，不输出markdown和任何解释文字。"
 
 L2_SYSTEM_PROMPT = "你是一位广告片分析专家，擅长从元数据中提取结构化信息。你必须严格按JSON格式输出，不输出任何解释文字或markdown。"
 
+GEMINI_L3_SYSTEM_PROMPT = """你是一位拥有20年经验的顶级4A公司创意总监、视觉审计专家、戛纳技术金奖评委。
+你的任务是根据视频文件（或详细描述）进行 L3 级别的“深度视听审计”。
 
-def _call_deepseek(client, prompt: str, system_prompt: str = None) -> str:
-    resp = client.chat.completions.create(
-        model="deepseek-chat",
-        messages=[
-            {"role": "system", "content": system_prompt or DEFAULT_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.7,
-        max_tokens=3072,
-        timeout=60,
-    )
-    return resp.choices[0].message.content.strip()
+你必须严格遵守以下 8 个模块的分析逻辑进行输出：
+1. 核心概念资产公式：提炼作品的“视觉公式”。
+2. 黄金3秒抓手：量化分析前3秒的吸睛策略。
+3. 详细逐帧分析：精确到秒，包含景别、运镜、声音、色彩四维标注。
+4. 镜头量化统计：统计总镜头数、平均时长、景别/运镜分布、产品露出统计。
+5. 色板量化提取：分析主色调板（含占比）、色温曲线、品牌色对照。
+6. 声音分析深化：响度曲线、频谱分布、音乐结构、旁白情绪。
+7. 创作技巧分级：将技巧分为“可立即复刻”、“需要经验”、“需要专业团队”三个级别。
+8. 观众心理学预测：注意力曲线预测、认知负荷评估、记忆锚点预测。
 
-
-def _call_anthropic(client, prompt: str, system_prompt: str = None) -> str:
-    resp = client.messages.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=3072,
-        system=system_prompt or DEFAULT_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.7,
-        timeout=60,
-    )
-    return resp.content[0].text.strip()
+输出格式：必须包含 Markdown 格式的详细报告，并在最后附带一个 JSON 代码块，包含所有量化指标数据。"""
 
 
-def evaluate_batch_with_llm(videos: list, industry: str = "", style_preference: str = "",
-                           mode: str = "batch", l2_metadata: dict = None) -> any:
-    """批量调 LLM API 生成评价"""
+def evaluate_with_gemini_l3(video: dict, video_path: str = None, l2_metadata: dict = None) -> dict:
+    """使用 Gemini 1.5 进行 L3 级深度视听审计；无 Gemini 时回退到 DeepSeek。
+    接收可选的 L2 元数据以避免独立重复推断品牌/风格/情绪。"""
+    genai = _get_gemini_client()
+
+    title = video.get("title", "")
+    content = video.get("content", "")
+    tags = [t.get("name", "") for t in (video.get("tags") or [])]
+
+    # 构建 L2 上下文块，避免 L3 独立推断导致与 ECD 报告矛盾
+    l2_context = ""
+    if l2_metadata:
+        l2_lines = []
+        brand = l2_metadata.get("brand", "")
+        brand_tier = l2_metadata.get("brand_tier", "")
+        product = l2_metadata.get("product", "")
+        visual_style = l2_metadata.get("visual_style", "")
+        mood = l2_metadata.get("mood", "")
+        budget_tier = l2_metadata.get("budget_tier", "")
+        style_keywords = l2_metadata.get("style_keywords", [])
+        commercial_type = l2_metadata.get("commercial_type", "")
+
+        if brand:
+            l2_lines.append(f"- 识别品牌: {brand} ({brand_tier})" + (f" / {product}" if product else ""))
+        if commercial_type:
+            l2_lines.append(f"- 商业片类型: {commercial_type}")
+        if visual_style:
+            l2_lines.append(f"- 视觉风格: {visual_style}")
+        if mood:
+            l2_lines.append(f"- 情绪基调: {mood}")
+        if style_keywords:
+            l2_lines.append(f"- 风格关键词: {', '.join(style_keywords)}")
+        if budget_tier:
+            l2_lines.append(f"- 制作级别: {budget_tier}")
+
+        if l2_lines:
+            l2_context = "【上游 L2 AI 元数据预分析 — 已确定，请在此基础上深化，不要推翻重来】\n" + "\n".join(l2_lines) + "\n\n"
+
+    prompt = f"""请对以下影视作品进行 L3 级深度视听审计。
+作品标题：{title}
+作品描述：{content}
+作品标签：{', '.join(tags)}
+{l2_context}
+要求：
+1. 严格按照"Gemini 视频分析报告增强建议"的 8 个模块输出。
+2. 报告必须专业、毒舌、一针见血。
+3. 包含详细的 Markdown 报告和最后的结构化 JSON 数据。
+"""
+
+    # 无 Gemini → 回退到 DeepSeek
+    if not genai:
+        provider, client = _get_llm_client()
+        if provider and client:
+            print(f"[L3] Gemini 未配置，回退到 {provider}", file=sys.stderr)
+            try:
+                text = _call_deepseek(client, prompt, GEMINI_L3_SYSTEM_PROMPT)
+                json_match = re.search(r'```json\n(.*?)\n```', text, re.DOTALL)
+                structured_data = {}
+                if json_match:
+                    try:
+                        structured_data = json.loads(json_match.group(1))
+                    except Exception:
+                        pass
+                return {
+                    "report": text,
+                    "structured_data": structured_data
+                }
+            except Exception as e:
+                print(f"[L3 DeepSeek fallback] Failed: {e}", file=sys.stderr)
+                return {"error": str(e)}
+        return {"error": "Gemini API Key 未配置，且无可用的 DeepSeek/Anthropic Key"}
+
+    try:
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-pro",
+            system_instruction=GEMINI_L3_SYSTEM_PROMPT
+        )
+
+        if video_path and os.path.exists(video_path):
+            # 如果有本地视频文件，上传并分析
+            video_file = genai.upload_file(path=video_path)
+            # 等待文件处理
+            while video_file.state.name == "PROCESSING":
+                time.sleep(2)
+                video_file = genai.get_file(video_file.name)
+            
+            response = model.generate_content([video_file, prompt])
+        else:
+            # 仅基于元数据进行深度模拟分析（L3 级增强描述）
+            response = model.generate_content(prompt)
+
+        text = response.text
+        
+        # 提取 JSON 部分
+        json_match = re.search(r'```json\n(.*?)\n```', text, re.DOTALL)
+        structured_data = {}
+        if json_match:
+            try:
+                structured_data = json.loads(json_match.group(1))
+            except:
+                pass
+        
+        return {
+            "report": text,
+            "structured_data": structured_data
+        }
+
+    except Exception as e:
+        print(f"[Gemini L3] Failed: {e}", file=sys.stderr)
+        return {"error": str(e)}
+
+
+# ============================================================
+# LLM 批量评价 & 本地摘要回退
+# ============================================================
+
+def evaluate_batch_with_llm(videos: list, industry: str, style_preference: str,
+                            mode: str = "batch", l2_metadata: dict = None) -> list:
+    """调用 LLM 批量评价视频，返回 summary + key_elements 列表。
+    mode="ecd" 时返回单条 ECD 审计报告字符串列表。"""
     provider, client = _get_llm_client()
-    if provider is None or client is None:
+    if not provider or not client:
         return None
 
     if mode == "ecd" and len(videos) == 1:
         prompt = build_ecd_audit_prompt(videos[0], industry, style_preference, l2_metadata)
-    else:
-        prompt = build_batch_prompt(videos, industry, style_preference)
+        try:
+            if provider == "deepseek":
+                text = _call_deepseek(client, prompt, DEFAULT_SYSTEM_PROMPT)
+            else:
+                text = _call_anthropic(client, prompt, DEFAULT_SYSTEM_PROMPT)
+            return text
+        except Exception as e:
+            print(f"[batch_llm ecd] Failed: {e}", file=sys.stderr)
+            return None
 
+    prompt = build_batch_prompt(videos, industry, style_preference)
     try:
         if provider == "deepseek":
-            text = _call_deepseek(client, prompt)
+            text = _call_deepseek(client, prompt, DEFAULT_SYSTEM_PROMPT)
         else:
-            text = _call_anthropic(client, prompt)
-    except Exception as e:
-        print(f"[LLM] {provider} API call failed: {e}", file=sys.stderr)
-        return None
+            text = _call_anthropic(client, prompt, DEFAULT_SYSTEM_PROMPT)
 
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r'^```\w*\n?', '', text)
-        text = re.sub(r'\n?```$', '', text)
-
-    if mode == "ecd":
-        return text
-
-    try:
+        text = text.strip()
+        if text.startswith("```"):
+            text = re.sub(r'^```\w*\n?', '', text)
+            text = re.sub(r'\n?```$', '', text)
         results = json.loads(text)
-        if isinstance(results, list) and len(results) == len(videos):
+        if isinstance(results, list):
             return results
-        return None
-    except json.JSONDecodeError:
-        return None
+    except Exception as e:
+        print(f"[batch_llm] Failed: {e}", file=sys.stderr)
+    return None
 
 
-# ============================================================
-# 简易本地摘要生成（无LLM时的fallback）
-# ============================================================
+def generate_local_summary(video: dict, industry: str = ""):
+    """本地规则生成 summary + key_elements，无需 LLM"""
+    title = video.get("title", "") or ""
+    duration = video.get("duration", 0) or 0
+    tags = [t.get("name", "") for t in (video.get("tags") or [])]
+    cats = video.get("categories") or []
+    cat_name = cats[0].get("category_name", "") if cats else ""
 
-def _extract_brand(title: str) -> str:
-    m = re.match(r'^([一-鿿\w]+)[｜|·]', title)
-    if m:
-        return m.group(1)
-    return ""
+    # 根据标签和分类推断风格词
+    style_hints = {
+        "快剪": "快节奏剪辑", "延时": "延时摄影", "航拍": "航拍视角",
+        "动画": "动画表现", "CG": "CG特效", "剧情": "故事化叙事",
+        "产品": "产品展示", "TVC": "TVC质感", "VLOG": "Vlog纪实",
+        "混剪": "混剪手法", "黑白": "黑白影调", "慢镜头": "慢镜表现",
+        "赛博朋克": "赛博朋克", "复古": "复古胶片", "国风": "国风美学",
+    }
+    key_elements = []
+    for tag in tags:
+        for k, v in style_hints.items():
+            if k in tag and v not in key_elements:
+                key_elements.append(v)
 
+    if not key_elements:
+        if cat_name:
+            key_elements.append(f"{cat_name}风格")
+        if duration < 30:
+            key_elements.append("短平快")
+        elif duration > 180:
+            key_elements.append("深度叙事")
+        key_elements.append("商业制作")
 
-def _extract_dynamic_tags(video: dict) -> list:
-    """从视频数据中动态提取关键元素标签"""
-    tags = []
-    duration = video.get("duration", 0)
-    quality = video.get("quality", 0)
-    badge = video.get("badge", "")
-    c = video.get("count", {})
-    views = c.get("count_view", 0)
-    likes = c.get("count_like", 0)
-    collect_rate = safe_div(c.get("count_collect", 0), max(1, views))
+    industry_str = f"适用于{industry}行业，" if industry else ""
+    cat_str = f"「{cat_name}」品类" if cat_name else "视频"
+    summary = f"{industry_str}{cat_str}，{duration}秒{'短片' if duration < 60 else '中长片'}，{'、'.join(key_elements[:2])}。"
 
-    if badge in ("recommend", "category_recommend"):
-        tags.append("编辑推荐")
-    if quality >= 4:
-        tags.append("高清制作")
-    if duration <= 60:
-        tags.append("短小精悍")
-    elif duration <= 180:
-        tags.append("时长适中")
-    elif duration >= 300:
-        tags.append("深度长片")
-    if views > 100000:
-        tags.append("高播放量")
-    elif views > 50000:
-        tags.append("热度上升")
-    if collect_rate > 0.02:
-        tags.append("高收藏率")
-    if safe_div(likes, max(1, views)) > 0.015:
-        tags.append("高赞内容")
-
-    api_tags = [t.get("name", "") for t in video.get("tags", [])]
-    for t in api_tags:
-        if t not in tags and len(tags) < 6:
-            tags.append(t)
-
-    for cat in video.get("categories", []):
-        sub = cat.get("sub", {}).get("category_name", "")
-        if sub and sub not in tags and len(tags) < 6:
-            tags.append(sub)
-
-    return tags[:6]
-
-
-def generate_local_summary(video: dict, industry: str) -> tuple:
-    """本地生成summary + key_elements（无LLM时的备选）"""
-    title = video.get("title", "")
-    brand = _extract_brand(title)
-    cats = video.get("categories", [])
-    main_cat = cats[0].get("category_name", "") if cats else ""
-    sub_cat = cats[0].get("sub", {}).get("category_name", "") if cats else ""
-    category = sub_cat or main_cat or "广告"
-    c = video.get("count", {})
-    views = c.get("count_view", 0)
-    score = c.get("score", 0)
-
-    key_el = _extract_dynamic_tags(video)
-
-    parts = []
-    if brand:
-        parts.append(brand)
-    parts.append(category)
-
-    if score > 15000:
-        highlight = "制作与创意俱佳"
-    elif views > 50000:
-        highlight = "口碑热度双高"
-    elif views > 10000:
-        highlight = "传播表现亮眼"
-    elif score > 5000:
-        highlight = "值得关注的新作"
-    else:
-        highlight = "潜力佳作"
-
-    summary = f"{'·'.join(parts)} {highlight}"
-    while len(summary) > 20:
-        if len(parts) > 1:
-            parts.pop()
-            summary = f"{'·'.join(parts)} {highlight}"
-        elif len(highlight) > 6:
-            highlight = highlight[:6]
-            summary = f"{'·'.join(parts)} {highlight}"
-        else:
-            break
-
-    return summary[:20], key_el
+    return summary, key_elements[:5]

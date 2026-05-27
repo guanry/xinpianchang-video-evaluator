@@ -32,3 +32,35 @@ class Comment(db.Model):
     video_id = db.Column(db.String(50), nullable=False)
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class VideoRecord(db.Model):
+    """缓存视频完整数据与 AI 评价结果"""
+    id = db.Column(db.String(50), primary_key=True)  # article_id
+    title = db.Column(db.String(200))
+    cover = db.Column(db.String(500))
+    duration = db.Column(db.Integer)
+    # 存储完整原始 JSON 数据
+    raw_data = db.Column(db.Text) 
+    # 关键指标快照
+    views = db.Column(db.Integer, default=0)
+    likes = db.Column(db.Integer, default=0)
+    collects = db.Column(db.Integer, default=0)
+    shares = db.Column(db.Integer, default=0)
+    
+    # --- AI 评价持久化 ---
+    ecd_report = db.Column(db.Text)      # ECD 审计报告 (Markdown)
+    l2_metadata = db.Column(db.Text)     # L2 结构化元数据 (JSON)
+    synthesis = db.Column(db.Text)       # 综合推理结果 (JSON)
+    creator_profile = db.Column(db.Text)  # 创作者画像 (JSON)
+    
+    # --- Gemini L3 视听审计 (New) ---
+    l3_gemini_report = db.Column(db.Text)     # Gemini 详细视听审计报告 (Markdown)
+    l3_structured_data = db.Column(db.Text)   # Gemini 提取的结构化量化数据 (JSON)
+    
+    last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    ai_evaluated_at = db.Column(db.DateTime)  # AI 评价生成的具体时间
+
+    def is_stale(self, hours=24):
+        """检查数据是否超过指定小时未更新（默认24小时）"""
+        delta = datetime.utcnow() - self.last_updated
+        return delta.total_seconds() > hours * 3600

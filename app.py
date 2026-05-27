@@ -20,7 +20,7 @@ app.config['SECRET_KEY'] = 'your-secret-key-here'  # Change this in production
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-from models import db, User, Favorite, Comment
+from models import db, User, Favorite, Comment, VideoRecord
 
 bcrypt = Bcrypt(app)
 db.init_app(app)
@@ -68,10 +68,12 @@ from evaluate import (
     analyze_creator_profile,
     detect_search_trends,
     build_m6_synthesis,
+    evaluate_with_gemini_l3, # New L3 integration
 )
 from embedding import get_index
 from scrape_video import get_article, format_detail, search_videos as scrape_search
 import requests
+from datetime import datetime
 
 SEARCH_API = "https://www.xinpianchang.com/api/xpc/v2/search"
 DETAIL_API = "https://www.xinpianchang.com/api/xpc/v2/article"
@@ -81,14 +83,51 @@ CACHE_TTL = 600  # 10 min，对齐上游缓存
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
-def search_videos(keyword: str, page: int = 1, filters: dict = None) -> list:
-    """搜索视频，返回list，支持分类/时长/比例等筛选"""
-    filter_key = json.dumps(filters, sort_keys=True) if filters else ""
-    cache_key = f"search:{keyword}:{page}:{filter_key}"
-    now = time.time()
-    if cache_key in CACHE and CACHE[cache_key]["ts"] > now - CACHE_TTL:
-        return CACHE[cache_key]["data"]
+def sync_video_to_db(video_data: dict):
+    """同步视频数据到数据库"""
+    if not video_data or not video_data.get("id"):
+        return
+    
+    vid = str(video_data["id"])
+    record = VideoRecord.query.get(vid)
+    
+    counts = video_data.get("count", {})
+    
+    if not record:
+        record = VideoRecord(
+            id=vid,
+            title=video_data.get("title"),
+            cover=video_data.get("cover"),
+            duration=video_data.get("duration"),
+            raw_data=json.dumps(video_data),
+            views=counts.get("count_view", 0),
+            likes=counts.get("count_like", 0),
+            collects=counts.get("count_collect", 0),
+            shares=counts.get("count_share", 0)
+        )
+        db.session.add(record)
+    else:
+        # 更新基本信息（通常不怎么变，但如果变了也同步）
+        record.title = video_data.get("title")
+        record.cover = video_data.get("cover")
+        record.duration = video_data.get("duration")
+        record.raw_data = json.dumps(video_data)
+        
+        # 更新动态指标
+        record.views = counts.get("count_view", 0)
+        record.likes = counts.get("count_like", 0)
+        record.collects = counts.get("count_collect", 0)
+        record.shares = counts.get("count_share", 0)
+        record.last_updated = datetime.utcnow()
+        
+    db.session.commit()
+    return record
 
+
+def search_videos(keyword: str, page: int = 1, filters: dict = None) -> list:
+    """搜索视频，返回list，并将结果同步到本地数据库"""
+    # 搜索本身不缓存，因为是动态流，但要把搜到的内容持久化
+    
     # 使用 scrape_video 中的新 v2 API 搜索
     cate_id = filters.get("cate_id") if filters else None
     duration = filters.get("duration") if filters else None
@@ -130,22 +169,39 @@ def search_videos(keyword: str, page: int = 1, filters: dict = None) -> list:
                 filtered.append(v)
             items = filtered
 
-    CACHE[cache_key] = {"ts": now, "data": items}
+    # 异步/同步持久化到数据库
+    for item in items:
+        try:
+            sync_video_to_db(item)
+        except Exception as e:
+            print(f"[db_sync] Failed for {item.get('id')}: {e}")
+
     return items
 
 
-def get_video_detail(article_id: int) -> dict:
-    """获取单个视频详情（带缓存）"""
-    cache_key = f"detail:{article_id}"
-    now = time.time()
-    if cache_key in CACHE and CACHE[cache_key]["ts"] > now - CACHE_TTL:
-        return CACHE[cache_key]["data"]
+def get_video_detail(article_id: int, force: bool = False) -> dict:
+    """获取视频详情：先查数据库，没有或过期才查 API"""
+    vid = str(article_id)
+    record = VideoRecord.query.get(vid)
+    
+    # 如果本地有且没过期（且不强制刷新），直接返回
+    if record and not force and not record.is_stale(hours=24):
+        try:
+            return json.loads(record.raw_data)
+        except:
+            pass
 
+    # 否则调用 API
+    print(f"[API] Fetching latest detail for {vid} (force={force})")
     try:
         detail = get_article(article_id, from_pc=True)
     except:
         detail = get_article(article_id, from_pc=False)
-    CACHE[cache_key] = {"ts": now, "data": detail}
+    
+    # 同步回数据库
+    if detail:
+        sync_video_to_db(detail)
+        
     return detail
 
 
@@ -425,19 +481,55 @@ def api_evaluate():
         if not article_id:
             return jsonify({"error": "请提供视频ID"}), 400
 
+        clean_id = article_id
+
         if not current_user.is_authenticated:
             return jsonify({"error": "请登录后查看深度审计"}), 401
             
         if not current_user.is_member:
             return jsonify({"error": "深度审计报告 (L2级) 为 Pro 专属功能", "upgrade_required": True}), 403
 
-        # 尝试清理 ID (防止包含非数字字符)
-        clean_id = "".join(filter(str.isdigit, article_id))
-        if not clean_id:
-            return jsonify({"error": "视频 ID 格式错误"}), 400
+        # 强制刷新参数
+        force_refresh = request.args.get("force", "false").lower() == "true"
 
+        # 尝试从数据库获取已有的 AI 评价 (如果不是强制刷新)
+        record = VideoRecord.query.get(clean_id)
+        if record and record.ecd_report and not force_refresh:
+            print(f"[DB] Loading permanent AI report for {clean_id}")
+            try:
+                # 即使 AI 报告是永久的，统计数据详情 detail 仍需最新或 24h 内的
+                detail = get_video_detail(int(clean_id), force=False)
+                
+                # 多维评分 D1-D4 (基于 detail 重新计算，因为这部分较快)
+                evaluation = build_full_evaluation(detail)
+                scores = evaluation["scores"]
+                flat_scores = {k: (v.get("score", 0) if isinstance(v, dict) else v) for k, v in scores.items()}
+
+                return jsonify({
+                    "id": record.id,
+                    "title": record.title,
+                    "scores": flat_scores,
+                    "score_details": scores,
+                    "scenarios": evaluation.get("scenarios", {}) if evaluation else {},
+                    "pool_info": evaluation.get("pool_info", {}) if evaluation else {},
+                    "ecd_report": record.ecd_report,
+                    "l2_metadata": json.loads(record.l2_metadata) if record.l2_metadata else None,
+                    "m2_results": run_m2_analysis(detail), # 重新分析动态指标
+                    "similar_works": get_index().find_similar(record.id, top_k=5),
+                    "creator_profile": json.loads(record.creator_profile) if record.creator_profile else None,
+                    "synthesis": json.loads(record.synthesis) if record.synthesis else None,
+                    "l3_gemini_report": record.l3_gemini_report,
+                    "l3_structured_data": json.loads(record.l3_structured_data) if record.l3_structured_data else None,
+                    "web_url": detail.get("web_url", ""),
+                    "cached_ai": True,
+                    "ai_evaluated_at": record.ai_evaluated_at.strftime("%Y-%m-%d %H:%M:%S") if record.ai_evaluated_at else None
+                })
+            except Exception as e:
+                print(f"[DB_ERROR] Failed to load cached AI data: {e}, falling back to regeneration")
+
+        # --- 以下是重新生成 AI 评价的逻辑 ---
         try:
-            detail = get_video_detail(int(clean_id))
+            detail = get_video_detail(int(clean_id), force=force_refresh)
         except Exception as e:
             print(f"[api_evaluate] get_video_detail failed for {clean_id}: {e}")
             return jsonify({"error": f"获取视频详情失败: {str(e)}"}), 500
@@ -466,15 +558,12 @@ def api_evaluate():
         l2_metadata = None
         try:
             l2_metadata = extract_l2_metadata(detail, industry, style)
-            # 注入 M2 互动分类结果到 L2 metadata（覆盖 LLM/规则推断）
             if l2_metadata and m2_results:
                 l2_metadata["engagement_type"] = m2_results["engagement"]["type"]
-                l2_metadata["engagement_confidence"] = m2_results["engagement"]["confidence"]
-                l2_metadata["engagement_signals"] = m2_results["engagement"]["signals"]
         except Exception as e:
             print(f"[api_evaluate] extract_l2_metadata failed: {e}")
 
-        # 4. 调用 LLM 进行 ECD 模式审计（注入 L2 元数据）
+        # 4. 调用 LLM 进行 ECD 模式审计
         try:
             ecd_report = evaluate_batch_with_llm([detail], industry, style, mode="ecd", l2_metadata=l2_metadata)
         except Exception as e:
@@ -485,6 +574,57 @@ def api_evaluate():
             summary, key_elements = generate_local_summary(detail, industry)
             ecd_report = f"### 审计中断\n系统繁忙或 AI 配置未就绪，请稍后再试。\n\n**本地初筛摘要：**\n{summary}"
 
+        # 5. 相似作品推荐
+        similar_works = []
+        try:
+            emb_idx = get_index()
+            emb_idx.add(detail)
+            similar_works = emb_idx.find_similar(str(detail.get("id")), top_k=5)
+        except Exception as e:
+            print(f"[api_evaluate] similar_works failed: {e}")
+
+        # 6. 创作者深度画像
+        creator_profile = None
+        try:
+            creator_profile = analyze_creator_profile(detail)
+        except Exception as e:
+            print(f"[api_evaluate] creator_profile failed: {e}")
+
+        # 7. Gemini L3 深度视听审计 (移到 M6 之前，注入 L2 元数据避免矛盾)
+        l3_results = None
+        try:
+            l3_results = evaluate_with_gemini_l3(detail, l2_metadata=l2_metadata)
+        except Exception as e:
+            print(f"[api_evaluate] Gemini L3 failed: {e}")
+
+        # 8. 跨维度综合推理 (融合 L1/L2/L3/M2/M4/M5 全部信号)
+        synthesis = None
+        try:
+            synthesis = build_m6_synthesis(detail, l1_scores=scores, l2_metadata=l2_metadata,
+                                           m2_results=m2_results, similar_works=similar_works,
+                                           creator_profile=creator_profile, l3_results=l3_results)
+        except Exception as e:
+            print(f"[api_evaluate] build_m6_synthesis failed: {e}")
+
+        # --- 永久保存 AI 评价结果到数据库 ---
+        try:
+            rec = VideoRecord.query.get(clean_id)
+            if rec:
+                rec.ecd_report = ecd_report
+                rec.l2_metadata = json.dumps(l2_metadata) if l2_metadata else None
+                rec.synthesis = json.dumps(synthesis) if synthesis else None
+                rec.creator_profile = json.dumps(creator_profile) if creator_profile else None
+                
+                if l3_results:
+                    rec.l3_gemini_report = l3_results.get("report")
+                    rec.l3_structured_data = json.dumps(l3_results.get("structured_data"))
+                
+                rec.ai_evaluated_at = datetime.utcnow()
+                db.session.commit()
+                print(f"[DB] AI report (inc. L3) saved for {clean_id}")
+        except Exception as e:
+            print(f"[DB_SAVE_ERROR] Failed to save AI report: {e}")
+
         # 提取扁平化分数用于前端
         flat_scores = {}
         for dim_key, dim_data in scores.items():
@@ -492,32 +632,6 @@ def api_evaluate():
                 flat_scores[dim_key] = dim_data.get("score", 0)
             else:
                 flat_scores[dim_key] = dim_data
-
-        # 5. 相似作品推荐（模块3：Embedding 语义相似度）
-        similar_works = []
-        try:
-            emb_idx = get_index()
-            # 确保当前视频已被索引
-            emb_idx.add(detail)
-            similar_works = emb_idx.find_similar(str(detail.get("id")), top_k=5)
-        except Exception as e:
-            print(f"[api_evaluate] similar_works failed: {e}")
-
-        # 6. 创作者深度画像（模块4）
-        creator_profile = None
-        try:
-            creator_profile = analyze_creator_profile(detail)
-        except Exception as e:
-            print(f"[api_evaluate] creator_profile failed: {e}")
-
-        # 7. 跨维度综合推理（模块6）
-        synthesis = None
-        try:
-            synthesis = build_m6_synthesis(detail, l1_scores=scores, l2_metadata=l2_metadata,
-                                           m2_results=m2_results, similar_works=similar_works,
-                                           creator_profile=creator_profile)
-        except Exception as e:
-            print(f"[api_evaluate] build_m6_synthesis failed: {e}")
 
         return jsonify({
             "id": detail.get("id"),
@@ -532,6 +646,8 @@ def api_evaluate():
             "similar_works": similar_works,
             "creator_profile": creator_profile,
             "synthesis": synthesis,
+            "l3_gemini_report": l3_results.get("report") if l3_results else None,
+            "l3_structured_data": l3_results.get("structured_data") if l3_results else None,
             "web_url": detail.get("web_url", "")
         })
     except Exception as e:
