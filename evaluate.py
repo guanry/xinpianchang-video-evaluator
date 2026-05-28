@@ -819,38 +819,35 @@ def build_ecd_audit_prompt(video: dict, industry: str, style_preference: str, l2
 
     l2_context = "\n".join(l2_context_lines) if l2_context_lines else "(未启用 L2 元数据分析)"
 
-    prompt = f"""你是一个在 4A 广告公司（如奥美、BBDO）摸爬滚打 15 年的顶尖创意总监（ECD）兼商业制片人。你眼光极其毒舌、犀利、一针见血，深谙广告主（甲方）的各种商业痛点，同时对移动端流媒体（抖音、小红书、B站）的流量密码和转化率了如指掌。
+    prompt = f"""你是一位资深广告策略分析师。请仅根据以下**已有元数据**，从商业投放视角给出客观判断。**注意：你没有看到视频本身，禁止对画面、镜头、色彩、运镜等视听元素做任何具体描述或猜测。**
 
-请根据以下输入，从纯粹的「商业落地、提案交付」视角，对该影视作品进行多维度的商业初筛点评。
-
-【输入 Context】
+【已知数据】
 - 作品名称: {video.get('title', '')}
-- 算法推荐阵列: {l1_data.get('tab_category', '常规商业流')}
-- 清洗后核心标签: {', '.join(l1_data.get('dimensions', {}).get('synesthesia', []))}
-- 预算估级参考: {l1_data.get('dimensions', {}).get('budget', 'B级')}
-- 目标行业/风格: {industry or '通用'} / {style_preference or '不限'}
-- 导演/团队创作原述: {content}
+- 时长: {video.get('duration', 0)}秒
+- 品类标签: {l1_data.get('tab_category', '通用')}
+- 风格标签: {', '.join(l1_data.get('dimensions', {}).get('synesthesia', []))}
+- 制作级别: {l1_data.get('dimensions', {}).get('budget', 'B级')}
+- 目标行业: {industry or '通用'} / 偏好风格: {style_preference or '不限'}
+- 创作者自述: {content}
 
-【L2 AI 元数据预分析】(由上游 AI 模型自动提取，供你参考)
+【L2 AI 元数据】(从标签/分类/团队推断)
 {l2_context}
 
-【输出规则】
-1. 拒绝任何「构图精美」「演技在线」「弘扬文化」等毫无商业参考价值的空洞废话。
-2. 语言风格：必须使用广告圈、影视圈地道黑话（如：Hook、抓手、心智、调性、平移、提案爆款、痛点、下沉、分镜、起承转合、视觉轰炸）。
-3. 态度：保持冷酷、专业、客观，既要一语道破其最大的「可抄资产」，也要毫不留情地指出其「落地转化风险」。
-4. 字数限制：整体点评控制在 300 字内。
-5. 如果 L2 元数据已给出品牌/风格/情绪推断，请在其基础上深化商业解读，而不是重复描述。
+【约束】
+1. 只基于上述数据分析，不编造任何视听细节。
+2. 若数据不足以支撑某结论，须明确指出"基于元数据推断"或"需查看视频确认"。
+3. 语言精炼、务实，避免浮夸形容词。
 
-【响应格式】(必须严格按下述 JSON 格式输出，仅JSON数组无其他文字)
+【输出格式】(严格 JSON，无其他文字)
 
 [{{
-  "🚨 叙事效率预警": "点评黄金前3秒的吸睛抓手(Hook)强不强、平移信息流投放风险、前置转化率预测。80-120字。",
+  "🚨 叙事效率预警": "根据时长({video.get('duration', 0)}秒)、品类(L2推断为{l2_metadata.get('commercial_type', '未知') if l2_metadata else '未知'})和互动数据，判断该片在信息流投放中的适配性、可能的完播率风险。80-120字。",
   "💬 商业提案 PPT 话术直通车": [
     {{
-      "针对同品类/硬核性能客户提案": "参考本片【核心视觉资产】，利用【视效/剪辑特征】在开篇3秒内剥夺用户注意力的提案话术。60-80字。"
+      "针对同品类客户提案": "基于标签和品类定位，提炼该片可复用的创作策略和提案方向。60-80字。"
     }},
     {{
-      "针对跨品类平移（{industry or '跨品类'}）提案": "将本片特有的【情绪词】跨界注入品类，用高级的【调性词】为品牌筑起护城河的提案话术。60-80字。"
+      "针对跨品类平移（{industry or '跨品类'}）提案": "分析该片的风格标签如何迁移到目标行业，给出跨界提案思路。60-80字。"
     }}
   ]
 }}]
@@ -2005,3 +2002,276 @@ L2 预分析: {l2_context or '无'}
             ],
             "_source": "error"
         }
+
+
+# ============================================================
+# L3 级视频深度分析 (Qwen3.5-Omni-Plus)
+# ============================================================
+
+# C-Score Matrix 评价维度 + C-Eye 商业初筛报告格式
+L3_ANALYSIS_PROMPT = '''你是一位拥有20年经验、曾获戛纳金狮奖的顶级4A公司创意总监。你对视觉美学、剪辑节奏、心理博弈和营销转化有着近乎偏执的高标准。
+
+请作为专业拉片工具，对上传的视频进行全方位、量化的多模态分析。你必须同时处理视频的【画面时序】和【音频轨道】。
+
+# C-Eye 商业初筛画像深度报告
+
+请严格按照以下结构输出 Markdown 格式的分析报告：
+
+## 一、C-Score Matrix 评分
+
+请从以下四个维度进行评分（各25分，满分100分）：
+
+### Hook (前3秒) - /25
+* 视觉冲击力评估
+* 悬念设置分析
+* "静音播放"下的吸引力判断
+
+### Rhythm (节奏) - /25
+* 转场是否卡点？
+* 视觉信息流是否符合人类认知的"心流"？
+* 剪辑节奏的"去耐心化"程度
+
+### Brand (品牌) - /25
+* 颜色、Logo、Slogan的植入是否自然且强势？
+* 品牌产品首次出现时间、总露出次数和时长占比
+
+### Conversion (转化) - /25
+* 卖点（USP）是否清晰？
+* 是否有强烈的行动导向？
+
+**总分: X/100**
+
+---
+
+## 二、镜头量化统计
+* 计算并给出总镜头数、平均镜头时长、镜头时长中位数
+* 分析景别分布（特写、中景、大远景占比）与运镜风格
+* 品牌产品或核心意象的首次出现时间、总露出次数和总时长占比
+
+## 三、色板量化提取
+* 给出主色调板：提取全片占比最高的前 3-4 种核心色值（十六进制 HEX），并说明其视觉功能
+* 分析色温变化走向，并推荐适合该片调性的电影 LUT 风格
+
+## 四、声音分析深化
+* 评估音频整体响度与动态范围（如 Bass Drop 等关键锚点的时间戳）
+* 拆解音频结构（环境音、BGM编曲风格、节奏BPM）
+* 精准识别并转录片中的核心语音旁白或歌词宣言
+
+## 五、导演风格与艺术演进
+* 结合画面呈现，分析本片在叙事、剪辑上的艺术风格
+* 黄金3秒抓手分析：开篇用怎样的视觉策略卡位？
+
+## 六、创作技巧分级拆解
+* 🟢 初级技巧（普通人可立即复刻的构图、色彩）
+* 🟡 中级技巧（依赖剪辑技巧、Match Cut 转场）
+* 🔴 高级技巧（高预算置景、复杂工业级运镜）
+
+## 七、观众心理学与传播预测
+* 绘制受众注意力与认知负荷曲线的时间节点变化
+* 预测社交媒体上传播的 3 个核心记忆锚点（产品、奇观、情感）
+* 平台投放定位：适合哪些渠道（信息流/分众/线下大屏）？
+
+## 八、预算成色与执行避坑
+* 预算级别估算（S/A/B/C级）
+* 低成本平移方案：如果预算有限，哪些核心技法是必须保住的？
+
+## 九、犀利点评与优化建议
+* **critical_review**: 50字以内的犀利点评
+* **optimization_plan**: 3条具体的修改建议（例如：将00:12的特写提前到开头）
+
+## 十、结构化数据标签
+最后，请输出 JSON 块：
+```json
+{
+  "total_score": 0-100,
+  "breakdown": {"hook": X, "rhythm": X, "brand": X, "conversion": X},
+  "total_shots": "总镜头数",
+  "avg_shot_duration": "平均镜头时长（秒）",
+  "shot_distribution": {"特写": "xx%", "中景": "xx%", "远景": "xx%"},
+  "color_palette": ["#HEX1", "#HEX2", "#HEX3"],
+  "bpm": "节奏BPM",
+  "style_tags": ["风格标签1", "风格标签2"],
+  "budget_level": "S/A/B/C",
+  "critical_review": "犀利点评",
+  "optimization_plan": ["建议1", "建议2", "建议3"]
+}
+```
+'''
+
+
+def analyze_video_with_qwen(video_path: str, industry: str = "", style: str = "",
+                             timeout: int = 600) -> dict:
+    """使用 Qwen 多模态模型直接分析视频文件。
+
+    通过 DashScope 原生 MultiModalConversation API，用 file:// 协议直传视频，
+    无需 Base64 编码，支持最大 500MB 视频。
+
+    Args:
+        video_path: 视频文件路径
+        industry: 行业背景（可选）
+        style: 风格偏好（可选）
+        timeout: 超时时间（秒）
+
+    Returns:
+        dict: 包含 status, report_json, report_md, error 等字段
+    """
+    import os as _os
+
+    # 检查 API Key
+    dashscope_key = os.environ.get("DASHSCOPE_API_KEY", "")
+    if not dashscope_key:
+        return {
+            "status": "failed",
+            "error": "未配置 DASHSCOPE_API_KEY。\n请在 .env 文件中设置: DASHSCOPE_API_KEY=your_key\n\n获取方式: https://www.alibabacloud.com/help/zh/model-studio/get-api-key",
+            "report_md": None,
+            "report_json": None
+        }
+
+    # 检查文件
+    if not _os.path.exists(video_path):
+        return {
+            "status": "failed",
+            "error": f"视频文件不存在: {video_path}",
+            "report_md": None,
+            "report_json": None
+        }
+
+    file_size_mb = _os.path.getsize(video_path) / 1024 / 1024
+    if file_size_mb > 500:
+        return {
+            "status": "failed",
+            "error": f"视频文件过大 ({file_size_mb:.1f}MB)，最大支持 500MB",
+            "report_md": None,
+            "report_json": None
+        }
+
+    try:
+        from dashscope import MultiModalConversation
+    except ImportError:
+        return {
+            "status": "failed",
+            "error": "需要安装 dashscope 库: pip install dashscope",
+            "report_md": None,
+            "report_json": None
+        }
+
+    print(f"[L3] Starting video analysis for {video_path} ({file_size_mb:.1f}MB)")
+
+    # 构建提示词
+    context_parts = []
+    if industry:
+        context_parts.append(f"行业背景: {industry}")
+    if style:
+        context_parts.append(f"风格偏好: {style}")
+
+    full_prompt = L3_ANALYSIS_PROMPT
+    if context_parts:
+        full_prompt += f"\n\n---\n视频背景信息：\n" + "\n".join(context_parts)
+
+    try:
+        local_file_path = f"file://{video_path}"
+
+        messages = [
+            {
+                "role": "system",
+                "content": [{"text": "你是一位拥有20年经验、曾获戛纳金狮奖的顶级4A公司创意总监。你对视觉美学、剪辑节奏、心理博弈和营销转化有着近乎偏执的高标准。只输出分析报告，不输出任何解释文字。"}]
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"video": local_file_path},
+                    {"text": full_prompt}
+                ]
+            }
+        ]
+
+        print(f"[L3] Calling DashScope MultiModalConversation with video...")
+        response = MultiModalConversation.call(
+            model="qwen3.5-omni-plus",
+            messages=messages,
+        )
+
+        if response.status_code != 200:
+            return {
+                "status": "failed",
+                "error": f"API 返回错误: code={response.status_code}, message={response.message}",
+                "report_md": None,
+                "report_json": None
+            }
+
+        # 解析 MultiModalConversation 响应
+        output = response.output
+        if output and output.choices:
+            content = output.choices[0].message.content
+            if isinstance(content, list):
+                report_md = ""
+                for part in content:
+                    if isinstance(part, dict) and "text" in part:
+                        report_md += part["text"]
+                    elif isinstance(part, str):
+                        report_md += part
+            elif isinstance(content, str):
+                report_md = content
+            else:
+                report_md = str(content)
+        else:
+            return {
+                "status": "failed",
+                "error": "API 返回内容为空",
+                "report_md": None,
+                "report_json": None
+            }
+
+        report_md = report_md.strip()
+        print(f"[L3] API analysis completed ({len(report_md)} chars)")
+
+        report_json = extract_json_from_markdown(report_md)
+
+        return {
+            "status": "completed",
+            "error": None,
+            "report_md": report_md,
+            "report_json": report_json,
+            "model": "qwen3.5-omni-plus",
+            "file_size_mb": round(file_size_mb, 1),
+            "method": "dashscope_multimodal"
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "failed",
+            "error": f"视频分析失败: {str(e)}",
+            "report_md": None,
+            "report_json": None
+        }
+
+
+def extract_json_from_markdown(report_md: str) -> dict:
+    """从 Markdown 报告中提取 JSON 块"""
+    import json as _json
+
+    if not report_md:
+        return {}
+
+    # 尝试匹配 ```json 块
+    json_match = re.search(r'```json\s*([\s\S]*?)\s*```', report_md)
+    if json_match:
+        try:
+            return _json.loads(json_match.group(1))
+        except:
+            pass
+
+    # 尝试匹配纯 JSON 对象
+    json_match = re.search(r'\{[\s\S]*"total_score"[\s\S]*\}', report_md)
+    if json_match:
+        try:
+            return _json.loads(json_match.group(0))
+        except:
+            pass
+
+    return {
+        "analysis_source": "qwen3.6-plus",
+        "note": "JSON extraction failed, please check report_md"
+    }

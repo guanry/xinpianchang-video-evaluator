@@ -860,6 +860,113 @@
     padding-top: 28px;
   }
   .section-subtitle { font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; }
+
+  /* ── L3 深度分析 ── */
+  .l3-upload-zone {
+    border: 2px dashed var(--primary);
+    border-radius: var(--radius-lg);
+    padding: 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: linear-gradient(135deg, #f8f6ff 0%, #fff 100%);
+  }
+  .l3-upload-zone:hover { border-color: var(--primary-hover); background: #f5f0ff; }
+  .l3-upload-zone.drag-over { border-color: var(--primary); background: #f0e8ff; }
+
+  .l3-upload-icon { font-size: 48px; margin-bottom: 16px; }
+  .l3-upload-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+  .l3-upload-desc { font-size: 14px; color: var(--text-secondary); margin-bottom: 16px; }
+  .l3-price-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, #7c5ce7 0%, #9b7ef2 100%);
+    color: #fff;
+    padding: 8px 20px;
+    border-radius: var(--radius-full);
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .l3-credits-card {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .l3-credits-label { font-size: 14px; color: var(--text-secondary); }
+  .l3-credits-value { font-size: 24px; font-weight: 700; color: var(--primary); }
+  .l3-credits-value small { font-size: 14px; font-weight: 400; }
+
+  .l3-report-section {
+    background: var(--surface-alt);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-top: 20px;
+  }
+  .l3-report-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .l3-report-title { font-size: 16px; font-weight: 600; }
+  .l3-report-meta { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+
+  .l3-download-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .l3-download-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+  .l3-report-content {
+    font-size: 14px;
+    line-height: 1.8;
+  }
+  .l3-report-content h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 24px 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--primary);
+  }
+  .l3-report-content h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 16px 0 8px;
+    color: var(--primary);
+  }
+  .l3-report-content pre {
+    background: #1a1a2e;
+    color: #f5f6fa;
+    padding: 16px;
+    border-radius: var(--radius);
+    overflow-x: auto;
+    font-size: 12px;
+  }
+  .l3-report-content code {
+    background: var(--surface-alt);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .l3-report-content pre code { background: transparent; padding: 0; }
 </style>
 </head>
 <body>
@@ -872,6 +979,7 @@
     </div>
     <nav class="header-nav">
       <a href="#" class="active" id="navHome">发现</a>
+      <a href="#" id="navL3">L3 分析</a>
       <a href="#" id="navFavs">参考库</a>
       <a href="#" id="navAccount" class="btn-outline">我的</a>
       <button class="user-avatar" id="profileBtn" title="账户">👤</button>
@@ -905,6 +1013,104 @@
       <div class="empty-state">
         <h3>即刻开启创意审计</h3>
         <p>输入关键词，体验 D1-D4 多维元数据评分系统</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- L3 深度分析页面 -->
+  <div class="page-section" id="l3Section">
+    <div class="section-title">L3 深度拉片分析</div>
+    <div class="section-subtitle">使用 Qwen3.5-Omni-Plus 多模态大模型，全方位分析视频镜头、色彩、声音与心理学</div>
+
+    <!-- 余额卡片 -->
+    <div class="l3-credits-card">
+      <div>
+        <div class="l3-credits-label">账户余额</div>
+      </div>
+      <div class="l3-credits-value" id="l3Balance">
+        ¥<span id="l3BalanceValue">0.00</span>
+        <button class="btn-outline" style="margin-left: 16px; padding: 6px 16px; font-size: 13px;" onclick="showRechargeModal()">充值</button>
+      </div>
+    </div>
+
+    <!-- 关联视频上下文 -->
+    <div id="l3ContextBanner" style="display:none; background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(255,255,255,0.02)); border:1px solid rgba(99,102,241,0.2); border-radius:var(--radius); padding:12px 16px; margin-bottom:20px; display:none; align-items:center; justify-content:space-between;">
+      <span style="font-size:14px;">🔗 正在对 <strong id="l3ContextTitle" style="color:var(--primary);">-</strong> 进行 L3 深度分析</span>
+      <button onclick="clearL3Context()" style="background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 12px;cursor:pointer;font-size:12px;color:var(--text-secondary);">取消关联</button>
+    </div>
+
+    <!-- 上传区域 -->
+    <div class="l3-upload-zone" id="l3UploadZone" onclick="document.getElementById('l3VideoInput').click()">
+      <div class="l3-upload-icon">🎬</div>
+      <div class="l3-upload-title">上传视频进行深度分析</div>
+      <div class="l3-upload-desc">支持 MP4/MOV/AVI/MKV 格式，最大 500MB</div>
+      <div class="l3-price-tag">¥9.9 / 次</div>
+    </div>
+    <input type="file" id="l3VideoInput" accept="video/*" style="display:none" onchange="handleL3Upload(this.files[0])">
+
+    <!-- 上传状态 -->
+    <div id="l3UploadStatus" style="display:none; text-align:center; padding: 20px;">
+      <div class="loader"></div>
+      <p style="margin-top: 12px; color: var(--text-secondary);" id="l3StatusText">正在上传分析中...</p>
+    </div>
+
+    <!-- 分析历史 -->
+    <div style="margin-top: 32px;">
+      <h3 style="font-size: 16px; margin-bottom: 16px;">分析历史</h3>
+      <div id="l3HistoryList"></div>
+    </div>
+  </div>
+
+  <!-- L3 报告弹窗 -->
+  <div class="modal-overlay" id="l3ReportModal">
+    <div class="modal-dialog wide">
+      <div class="modal-header">
+        <span id="l3ReportTitle">L3 深度分析报告</span>
+        <button class="modal-close" onclick="closeModals()">✕</button>
+      </div>
+      <div id="l3ReportContent">
+        <div class="l3-report-header">
+          <div>
+            <div class="l3-report-title" id="l3ReportVideoName">-</div>
+            <div class="l3-report-meta" id="l3ReportMeta">-</div>
+          </div>
+          <div>
+            <button class="l3-download-btn" onclick="downloadL3Report('md')">📄 Markdown</button>
+            <button class="l3-download-btn" style="margin-left: 8px;" onclick="downloadL3Report('pdf')">📑 PDF</button>
+          </div>
+        </div>
+        <div class="l3-report-content" id="l3ReportBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 充值弹窗 -->
+  <div class="modal-overlay" id="rechargeModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <span>充值余额</span>
+        <button class="modal-close" onclick="closeModals()">✕</button>
+      </div>
+      <div style="padding: 20px 0;">
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px;">
+          <button class="btn-outline" onclick="doRecharge(990)" style="padding: 20px;">
+            <div style="font-size: 20px; font-weight: 700; color: var(--primary);">¥9.9</div>
+            <div style="font-size: 12px; color: var(--text-secondary);">1次分析</div>
+          </button>
+          <button class="btn-outline" onclick="doRecharge(4900)" style="padding: 20px;">
+            <div style="font-size: 20px; font-weight: 700; color: var(--primary);">¥49</div>
+            <div style="font-size: 12px; color: var(--text-secondary);">5次分析</div>
+          </button>
+          <button class="btn-outline" onclick="doRecharge(9900)" style="padding: 20px;">
+            <div style="font-size: 20px; font-weight: 700; color: var(--primary);">¥99</div>
+            <div style="font-size: 12px; color: var(--text-secondary);">10次分析</div>
+          </button>
+        </div>
+        <div class="input-group">
+          <label class="input-label">自定义金额（元）</label>
+          <input type="number" class="modal-input" id="customRechargeAmount" placeholder="输入金额" min="1">
+        </div>
+        <button class="modal-btn" style="margin-top: 16px;" onclick="doCustomRecharge()">确认充值</button>
       </div>
     </div>
   </div>
@@ -1013,14 +1219,6 @@
         <div id="m2AnomalyFlag"></div>
         <div class="m2-signals-text" id="m2SignalsText"></div>
       </div>
-      <!-- Video Upload Zone -->
-      <div class="upload-zone" id="uploadZone" onclick="document.getElementById('uploadInput').click()">
-        <div class="upload-icon">🎬</div>
-        <div class="upload-text">上传视频获取详细报告</div>
-        <div class="upload-hint">支持 MP4/MOV/AVI，最大 500MB</div>
-      </div>
-      <input type="file" id="uploadInput" accept="video/*" style="display:none" onchange="handleVideoUpload(this.files[0])">
-      <div class="upload-status" id="uploadStatus"></div>
       <!-- ECD Structured Report -->
       <div id="ecdReport"></div>
       <div class="creator-section" id="creatorSection" style="display:none;">
@@ -1057,6 +1255,7 @@ let allVideos = [];
 let currentCategory = 'ALL';
 let currentIndustry = '';
 let isLoginMode = true;
+let currentL3ReportId = null;
 
 // ── UI Helpers ──
 function openModal(id) { document.getElementById(id).style.display = 'flex'; }
@@ -1069,13 +1268,26 @@ document.getElementById('navHome').onclick = (e) => {
   e.preventDefault();
   setActiveNav('navHome');
   document.getElementById('homeSection').classList.add('active');
+  document.getElementById('l3Section').classList.remove('active');
   document.getElementById('favSection').classList.remove('active');
+};
+document.getElementById('navL3').onclick = (e) => {
+  e.preventDefault();
+  if (!currentUser) { openModal('authModal'); return; }
+  setActiveNav('navL3');
+  document.getElementById('homeSection').classList.remove('active');
+  document.getElementById('l3Section').classList.add('active');
+  document.getElementById('favSection').classList.remove('active');
+  applyL3Context();
+  loadL3Balance();
+  loadL3History();
 };
 document.getElementById('navFavs').onclick = (e) => {
   e.preventDefault();
   if (!currentUser) { openModal('authModal'); return; }
   setActiveNav('navFavs');
   document.getElementById('homeSection').classList.remove('active');
+  document.getElementById('l3Section').classList.remove('active');
   document.getElementById('favSection').classList.add('active');
   loadFavorites();
 };
@@ -1246,8 +1458,12 @@ function buildVideoCard(v) {
         <button class="action-btn ${isFav ? 'fav-active' : ''}" onclick="toggleFav('${v.id}')">
           ${isFav ? '★ 已收藏' : '☆ 收藏'}
         </button>
+        <button class="action-btn" onclick="event.stopPropagation();startL3FromCard('${v.id}', '${v.title.replace(/'/g, "\\'")}')">
+          🔬 L3 分析
+        </button>
         <button class="action-btn primary" onclick="viewDetail('${v.id}')">深度审计报告</button>
       </div>
+      ${v.has_l3_report ? `<div style="padding:0 18px 12px;"><span style="font-size:11px;font-weight:600;color:#16a34a;cursor:pointer;" onclick="event.stopPropagation();viewL3ByVideoId('${v.id}')">📋 已有 L3 深度拉片报告</span></div>` : ''}
     </div>
   `;
 }
@@ -1619,60 +1835,246 @@ function renderEcdReport(report) {
   }
 
   container.innerHTML = html;
+}
 
-  // 如果有 _file_info 显示文件信息
-  if (data._file_info) {
-    const status = document.getElementById('uploadStatus');
-    status.textContent = '✅ 视频分析完成 · ' + escHtml(data._file_info);
-    status.className = 'upload-status success';
+// L3 拖拽支持
+document.addEventListener('DOMContentLoaded', function() {
+  const l3Zone = document.getElementById('l3UploadZone');
+  if (l3Zone) {
+    l3Zone.addEventListener('dragover', e => { e.preventDefault(); l3Zone.classList.add('drag-over'); });
+    l3Zone.addEventListener('dragleave', () => l3Zone.classList.remove('drag-over'));
+    l3Zone.addEventListener('drop', e => {
+      e.preventDefault();
+      l3Zone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) handleL3Upload(file);
+    });
+  }
+});
+
+// ============================================================
+// L3 深度分析功能
+// ============================================================
+
+let l3Context = null;  // { video_id, video_title, industry }
+
+function startL3FromCard(videoId, videoTitle) {
+  if (!currentUser) { openModal('authModal'); return; }
+  l3Context = { video_id: videoId, video_title: videoTitle, industry: currentIndustry };
+  sessionStorage.setItem('l3Context', JSON.stringify(l3Context));
+  setActiveNav('navL3');
+  document.getElementById('homeSection').classList.remove('active');
+  document.getElementById('l3Section').classList.add('active');
+  document.getElementById('favSection').classList.remove('active');
+  applyL3Context();
+  loadL3Balance();
+  loadL3History();
+}
+
+function applyL3Context() {
+  if (!l3Context) {
+    try {
+      const stored = sessionStorage.getItem('l3Context');
+      if (stored) l3Context = JSON.parse(stored);
+    } catch (e) {}
+  }
+  const banner = document.getElementById('l3ContextBanner');
+  if (l3Context && l3Context.video_id) {
+    banner.style.display = 'flex';
+    document.getElementById('l3ContextTitle').textContent = l3Context.video_title || l3Context.video_id;
+  } else {
+    banner.style.display = 'none';
   }
 }
 
-// ── Video Upload Handler ──
-async function handleVideoUpload(file) {
+function clearL3Context() {
+  l3Context = null;
+  sessionStorage.removeItem('l3Context');
+  document.getElementById('l3ContextBanner').style.display = 'none';
+}
+
+async function viewL3ByVideoId(videoId) {
+  if (!currentUser) return;
+  try {
+    const resp = await fetch('/api/l3/report/by-video/' + videoId);
+    const data = await resp.json();
+    if (data.error) { alert(data.error); return; }
+    currentL3ReportId = data.id;
+    document.getElementById('l3ReportVideoName').textContent = data.video_filename || '未知视频';
+    document.getElementById('l3ReportMeta').textContent =
+      `${data.video_size_mb ? data.video_size_mb.toFixed(1) + 'MB' : ''} · ${data.completed_at || ''}`;
+    const body = document.getElementById('l3ReportBody');
+    if (data.report_md) {
+      body.innerHTML = marked.parse(data.report_md);
+    } else {
+      body.innerHTML = '<p style="color:var(--text-secondary);">暂无报告内容</p>';
+    }
+    openModal('l3ReportModal');
+  } catch (e) {
+    alert('加载报告失败: ' + e.message);
+  }
+}
+
+async function loadL3Balance() {
+  try {
+    const resp = await fetch('/api/credits/balance');
+    const data = await resp.json();
+    document.getElementById('l3BalanceValue').textContent = data.balance_yuan?.toFixed(2) || '0.00';
+  } catch (e) {
+    console.error('加载余额失败:', e);
+  }
+}
+
+async function loadL3History() {
+  try {
+    const resp = await fetch('/api/l3/history');
+    const data = await resp.json();
+    const list = document.getElementById('l3HistoryList');
+
+    if (!data.analyses || data.analyses.length === 0) {
+      list.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-secondary);">暂无分析记录</div>';
+      return;
+    }
+
+    list.innerHTML = data.analyses.map(a => `
+      <div class="fav-card" onclick="${a.status === 'completed' ? `viewL3Report(${a.id})` : ''}">
+        <div style="flex:1;">
+          <div class="fav-title">${escHtml(a.video_filename)}${a.reference_video_title ? ' 🔗 ' + escHtml(a.reference_video_title) : ''}</div>
+          <div class="fav-meta">
+            ${a.video_size_mb ? a.video_size_mb.toFixed(1) + 'MB · ' : ''}
+            ${a.status === 'completed' ? '✅ 分析完成' : a.status === 'processing' ? '⏳ 处理中' : a.status === 'failed' ? '❌ 失败' : '⏳ 等待中'}
+            ${a.completed_at ? ' · ' + a.completed_at : ''}
+          </div>
+          ${a.error_message ? `<div style="color:#e74c3c; font-size:12px; margin-top:4px;">${escHtml(a.error_message)}</div>` : ''}
+        </div>
+        ${a.status === 'completed' ? '<button class="btn-primary" style="padding:8px 16px;">查看报告</button>' : ''}
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('加载历史失败:', e);
+  }
+}
+
+async function handleL3Upload(file) {
   if (!file) return;
-  const status = document.getElementById('uploadStatus');
-  status.textContent = '⏳ 正在上传分析中...';
-  status.className = 'upload-status uploading';
+  if (!currentUser) {
+    openModal('authModal');
+    return;
+  }
+
+  // 检查文件大小
+  if (file.size > 500 * 1024 * 1024) {
+    alert('文件过大，最大支持 500MB');
+    return;
+  }
+
+  const statusEl = document.getElementById('l3UploadStatus');
+  const statusText = document.getElementById('l3StatusText');
+
+  statusEl.style.display = 'block';
+  statusText.textContent = '正在上传分析中...';
 
   const formData = new FormData();
   formData.append('video', file);
-  formData.append('industry', document.getElementById('detailIndustry')?.value || '');
-  formData.append('style', document.getElementById('detailStyle')?.value || '');
-
-  const currentId = document.getElementById('detailVideoId')?.value || '';
-  if (currentId) formData.append('video_id', currentId);
+  if (l3Context && l3Context.video_id) {
+    formData.append('video_id', l3Context.video_id);
+    formData.append('video_title', l3Context.video_title || '');
+  }
 
   try {
-    const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+    const resp = await fetch('/api/l3/analyze', { method: 'POST', body: formData });
     const result = await resp.json();
+
     if (resp.ok) {
-      status.textContent = '✅ 分析完成';
-      status.className = 'upload-status success';
-      renderEcdReport(result.report);
+      statusText.textContent = '✅ 分析完成！';
+      statusEl.style.display = 'none';
+
+      // 刷新历史并打开报告
+      await loadL3History();
+      await loadL3Balance();
+      viewL3Report(result.analysis_id);
     } else {
-      status.textContent = '❌ ' + (result.error || '上传失败');
-      status.className = 'upload-status error';
+      if (result.insufficient_balance) {
+        statusText.textContent = '❌ 余额不足';
+        alert(result.error + '\n\n请先充值余额');
+        showRechargeModal();
+      } else {
+        statusText.textContent = '❌ ' + (result.error || '分析失败');
+      }
     }
   } catch (err) {
-    status.textContent = '❌ 网络错误: ' + err.message;
-    status.className = 'upload-status error';
+    statusText.textContent = '❌ 网络错误: ' + err.message;
   }
 }
 
-// Drag & drop support
-document.addEventListener('DOMContentLoaded', function() {
-  const zone = document.getElementById('uploadZone');
-  if (!zone) return;
-  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
-  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-  zone.addEventListener('drop', e => {
-    e.preventDefault();
-    zone.classList.remove('drag-over');
-    const file = e.dataTransfer.files[0];
-    if (file) handleVideoUpload(file);
-  });
-});
+async function viewL3Report(analysisId) {
+  currentL3ReportId = analysisId;
+
+  try {
+    const resp = await fetch(`/api/l3/report/${analysisId}`);
+    const data = await resp.json();
+
+    if (data.error) {
+      alert(data.error);
+      return;
+    }
+
+    document.getElementById('l3ReportVideoName').textContent = data.video_filename || '未知视频';
+    document.getElementById('l3ReportMeta').textContent =
+      `${data.video_size_mb ? data.video_size_mb.toFixed(1) + 'MB' : ''} · ${data.completed_at || ''}`;
+
+    // 渲染 Markdown 报告
+    const body = document.getElementById('l3ReportBody');
+    if (data.report_md) {
+      body.innerHTML = marked.parse(data.report_md);
+    } else {
+      body.innerHTML = '<p style="color:var(--text-secondary);">暂无报告内容</p>';
+    }
+
+    openModal('l3ReportModal');
+  } catch (e) {
+    alert('加载报告失败: ' + e.message);
+  }
+}
+
+function downloadL3Report(format) {
+  if (!currentL3ReportId) return;
+  window.open(`/api/l3/download/${currentL3ReportId}?format=${format}`, '_blank');
+}
+
+function showRechargeModal() {
+  closeModals();
+  openModal('rechargeModal');
+}
+
+async function doRecharge(amount) {
+  try {
+    const resp = await fetch('/api/credits/recharge', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ amount })
+    });
+    const data = await resp.json();
+    if (data.error) {
+      alert(data.error);
+    } else {
+      alert('充值成功！余额: ¥' + data.balance_yuan);
+      closeModals();
+      loadL3Balance();
+    }
+  } catch (e) {
+    alert('充值失败: ' + e.message);
+  }
+}
+
+function doCustomRecharge() {
+  const amount = parseFloat(document.getElementById('customRechargeAmount').value) || 0;
+  if (amount <= 0) {
+    alert('请输入有效金额');
+    return;
+  }
+  doRecharge(Math.round(amount * 100));  // 转换为分
+}
 </script>
 </body>
 </html>

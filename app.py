@@ -23,7 +23,7 @@ app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max upload
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-from models import db, User, Favorite, Comment, VideoRecord, SearchCache
+from models import db, User, Favorite, Comment, VideoRecord, SearchCache, UserCredits, CreditTransaction, L3Analysis
 
 bcrypt = Bcrypt(app)
 db.init_app(app)
@@ -37,6 +37,17 @@ def load_user(user_id):
 # Create database tables
 with app.app_context():
     db.create_all()
+    # 迁移：为已有数据库添加 L3Analysis 新字段
+    from sqlalchemy import inspect, text
+    inspector = inspect(db.engine)
+    if 'l3_analysis' in inspector.get_table_names():
+        cols = [c['name'] for c in inspector.get_columns('l3_analysis')]
+        if 'reference_video_id' not in cols:
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE l3_analysis ADD COLUMN reference_video_id VARCHAR(50)"))
+                conn.execute(text("ALTER TABLE l3_analysis ADD COLUMN reference_video_title VARCHAR(200)"))
+                conn.commit()
+            print("[DB] Migration: added reference_video_id/ title to l3_analysis")
 
 # 加载筛选器配置
 FILTERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "search_filters.json")
@@ -72,6 +83,7 @@ from evaluate import (
     detect_search_trends,
     build_m6_synthesis,
     evaluate_uploaded_video,
+    analyze_video_with_qwen,
 )
 from embedding import get_index
 from scrape_video import get_article, format_detail, search_videos as scrape_search
@@ -409,8 +421,14 @@ def api_search():
         # 刷新当前用户的收藏状态
         favorite_ids = set(f.video_id for f in Favorite.query.filter_by(
             user_id=current_user.id).all())
+        l3_ids = set(r.reference_video_id for r in L3Analysis.query.filter(
+            L3Analysis.user_id == current_user.id,
+            L3Analysis.reference_video_id != None,
+            L3Analysis.status == 'completed'
+        ).all())
         for v in data.get("videos", []):
             v["is_favorite"] = str(v.get("id", "")) in favorite_ids
+            v["has_l3_report"] = str(v.get("id", "")) in l3_ids
         return jsonify(data)
 
     try:
@@ -439,11 +457,18 @@ def api_search():
 
     # 3. 组装结果
     favorite_ids = []
+    l3_ids = set()
     if current_user.is_authenticated:
         favorite_ids = [f.video_id for f in Favorite.query.filter_by(user_id=current_user.id).all()]
+        l3_ids = set(r.reference_video_id for r in L3Analysis.query.filter(
+            L3Analysis.user_id == current_user.id,
+            L3Analysis.reference_video_id != None,
+            L3Analysis.status == 'completed'
+        ).all())
 
     for i, item in enumerate(scored_items):
         item["is_favorite"] = item["id"] in favorite_ids
+        item["has_l3_report"] = item["id"] in l3_ids
 
         # 注入 LLM 深度审计结果 (Pro 专属)
         if llm_results and i < len(llm_results):
@@ -746,6 +771,401 @@ def api_upload():
         "filename": safe_name,
         "report": report,
         "file_size_mb": round(os.path.getsize(filepath) / 1024 / 1024, 1),
+    })
+
+
+# ============================================================
+# L3 深度分析 API (Qwen3.5-Omni-Plus)
+# ============================================================
+
+L3_PRICE = 99  # 9.9 元 = 99 分
+
+
+def get_or_create_user_credits(user_id: int) -> UserCredits:
+    """获取或创建用户积分记录"""
+    credits = UserCredits.query.filter_by(user_id=user_id).first()
+    if not credits:
+        credits = UserCredits(user_id=user_id, balance=0)
+        db.session.add(credits)
+        db.session.commit()
+    return credits
+
+
+@app.route("/api/credits/balance")
+@login_required
+def api_credits_balance():
+    """获取用户积分余额"""
+    credits = get_or_create_user_credits(current_user.id)
+    return jsonify({
+        "balance": credits.balance,
+        "balance_yuan": round(credits.balance / 100, 2)
+    })
+
+
+@app.route("/api/credits/recharge", methods=["POST"])
+@login_required
+def api_credits_recharge():
+    """模拟充值积分"""
+    data = request.json
+    amount = data.get("amount", 0)
+
+    if amount <= 0:
+        return jsonify({"error": "充值金额必须大于0"}), 400
+
+    credits = get_or_create_user_credits(current_user.id)
+
+    # 创建交易记录
+    transaction = CreditTransaction(
+        user_id=current_user.id,
+        amount=amount,
+        type="recharge",
+        description=f"充值 {amount / 100:.2f} 元"
+    )
+    db.session.add(transaction)
+
+    # 更新余额
+    credits.balance += amount
+    credits.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({
+        "message": "充值成功",
+        "balance": credits.balance,
+        "balance_yuan": round(credits.balance / 100, 2),
+        "transaction_id": transaction.id
+    })
+
+
+@app.route("/api/credits/history")
+@login_required
+def api_credits_history():
+    """获取积分交易历史"""
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
+
+    transactions = CreditTransaction.query.filter_by(user_id=current_user.id) \
+        .order_by(CreditTransaction.created_at.desc()) \
+        .paginate(page=page, per_page=per_page, error_out=False)
+
+    results = [{
+        "id": t.id,
+        "amount": t.amount,
+        "amount_yuan": round(t.amount / 100, 2),
+        "type": t.type,
+        "description": t.description,
+        "created_at": t.created_at.strftime("%Y-%m-%d %H:%M")
+    } for t in transactions.items]
+
+    return jsonify({
+        "transactions": results,
+        "total": transactions.total,
+        "pages": transactions.pages,
+        "current_page": page
+    })
+
+
+@app.route("/api/l3/analyze", methods=["POST"])
+@login_required
+def api_l3_analyze():
+    """发起 L3 深度分析（扣费）"""
+    if 'video' not in request.files:
+        return jsonify({"error": "请选择视频文件"}), 400
+
+    file = request.files['video']
+    if not file.filename:
+        return jsonify({"error": "文件名为空"}), 400
+    if not allowed_file(file.filename):
+        return jsonify({"error": f"不支持的文件格式，仅支持: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
+
+    industry = request.form.get("industry", "").strip()
+    style = request.form.get("style", "").strip()
+    reference_video_id = request.form.get("video_id", "").strip() or None
+    reference_video_title = request.form.get("video_title", "").strip() or None
+
+    # 检查余额
+    credits = get_or_create_user_credits(current_user.id)
+    if credits.balance < L3_PRICE:
+        return jsonify({
+            "error": f"余额不足，需要 {L3_PRICE / 100:.2f} 元，当前余额 {credits.balance / 100:.2f} 元",
+            "insufficient_balance": True,
+            "required": L3_PRICE,
+            "current": credits.balance
+        }), 402
+
+    # 保存文件
+    ext = file.filename.rsplit('.', 1)[1].lower()
+    safe_name = f"l3_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file.filename.encode()).hexdigest()[:8]}.{ext}"
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], safe_name)
+    file.save(filepath)
+    file_size_mb = os.path.getsize(filepath) / 1024 / 1024
+
+    print(f"[L3] Uploaded: {filepath} ({file_size_mb:.1f}MB)")
+
+    # 创建分析记录
+    analysis = L3Analysis(
+        user_id=current_user.id,
+        video_filename=file.filename,
+        video_path=filepath,
+        video_size_mb=file_size_mb,
+        status='pending',
+        credits_used=L3_PRICE,
+        reference_video_id=reference_video_id,
+        reference_video_title=reference_video_title,
+    )
+    db.session.add(analysis)
+    db.session.commit()
+
+    # 扣费
+    credits.balance -= L3_PRICE
+    credits.updated_at = datetime.utcnow()
+
+    transaction = CreditTransaction(
+        user_id=current_user.id,
+        amount=-L3_PRICE,
+        type="consume",
+        reference_id=str(analysis.id),
+        description=f"L3 深度分析 - {file.filename}"
+    )
+    db.session.add(transaction)
+    db.session.commit()
+
+    # 异步执行分析（实际生产环境应使用任务队列如 Celery）
+    # 这里简化为同步执行
+    analysis.status = 'processing'
+    analysis.started_at = datetime.utcnow()
+    db.session.commit()
+
+    try:
+        result = analyze_video_with_qwen(filepath, industry, style)
+
+        analysis.status = result.get("status", "failed")
+        analysis.report_md = result.get("report_md")
+        analysis.report_json = json.dumps(result.get("report_json", {}), ensure_ascii=False) if result.get("report_json") else None
+        analysis.error_message = result.get("error")
+        analysis.completed_at = datetime.utcnow()
+        db.session.commit()
+
+        if result.get("status") == "failed":
+            # 分析失败，退款
+            credits.balance += L3_PRICE
+            credits.updated_at = datetime.utcnow()
+            refund = CreditTransaction(
+                user_id=current_user.id,
+                amount=L3_PRICE,
+                type="refund",
+                reference_id=str(analysis.id),
+                description=f"L3 分析失败退款 - {file.filename}"
+            )
+            db.session.add(refund)
+            db.session.commit()
+
+            return jsonify({
+                "error": result.get("error"),
+                "analysis_id": analysis.id,
+                "refunded": True
+            }), 500
+
+        return jsonify({
+            "analysis_id": analysis.id,
+            "status": "completed",
+            "message": "分析完成"
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+
+        analysis.status = 'failed'
+        analysis.error_message = str(e)
+        db.session.commit()
+
+        # 退款
+        credits.balance += L3_PRICE
+        credits.updated_at = datetime.utcnow()
+        refund = CreditTransaction(
+            user_id=current_user.id,
+            amount=L3_PRICE,
+            type="refund",
+            reference_id=str(analysis.id),
+            description=f"L3 分析异常退款 - {file.filename}"
+        )
+        db.session.add(refund)
+        db.session.commit()
+
+        return jsonify({"error": f"分析失败: {str(e)}", "refunded": True}), 500
+
+
+@app.route("/api/l3/report/<int:analysis_id>")
+@login_required
+def api_l3_report(analysis_id):
+    """获取 L3 分析报告"""
+    analysis = L3Analysis.query.get(analysis_id)
+
+    if not analysis:
+        return jsonify({"error": "分析记录不存在"}), 404
+
+    if analysis.user_id != current_user.id:
+        return jsonify({"error": "无权访问此报告"}), 403
+
+    report_json = None
+    if analysis.report_json:
+        try:
+            report_json = json.loads(analysis.report_json)
+        except:
+            report_json = {}
+
+    return jsonify({
+        "id": analysis.id,
+        "status": analysis.status,
+        "video_filename": analysis.video_filename,
+        "video_size_mb": analysis.video_size_mb,
+        "report_md": analysis.report_md,
+        "report_json": report_json,
+        "error_message": analysis.error_message,
+        "credits_used": analysis.credits_used,
+        "created_at": analysis.created_at.strftime("%Y-%m-%d %H:%M:%S") if analysis.created_at else None,
+        "completed_at": analysis.completed_at.strftime("%Y-%m-%d %H:%M:%S") if analysis.completed_at else None
+    })
+
+
+@app.route("/api/l3/download/<int:analysis_id>")
+@login_required
+def api_l3_download(analysis_id):
+    """下载 L3 分析报告"""
+    from flask import send_file, make_response
+    import io
+
+    analysis = L3Analysis.query.get(analysis_id)
+
+    if not analysis:
+        return jsonify({"error": "分析记录不存在"}), 404
+
+    if analysis.user_id != current_user.id:
+        return jsonify({"error": "无权访问此报告"}), 403
+
+    if analysis.status != 'completed' or not analysis.report_md:
+        return jsonify({"error": "报告尚未生成或生成失败"}), 400
+
+    format_type = request.args.get("format", "md").lower()
+
+    if format_type == "md":
+        # 下载 Markdown
+        content = analysis.report_md
+        filename = f"L3_Report_{analysis.id}.md"
+        mimetype = "text/markdown"
+    elif format_type == "pdf":
+        # 生成 PDF（需要 weasyprint 或 reportlab）
+        try:
+            import markdown
+            from weasyprint import HTML
+
+            html_content = markdown.markdown(analysis.report_md)
+            html_full = f"""
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <style>
+                    body {{ font-family: 'Microsoft YaHei', sans-serif; padding: 40px; line-height: 1.8; }}
+                    h2 {{ border-bottom: 2px solid #7c5ce7; padding-bottom: 8px; }}
+                    h3 {{ color: #7c5ce7; }}
+                    pre {{ background: #f5f6fa; padding: 16px; border-radius: 8px; overflow-x: auto; }}
+                    code {{ background: #f5f6fa; padding: 2px 6px; border-radius: 4px; }}
+                </style>
+            </head>
+            <body>
+                <h1>L3 深度分析报告</h1>
+                <p><strong>视频:</strong> {analysis.video_filename}</p>
+                <p><strong>分析时间:</strong> {analysis.completed_at.strftime('%Y-%m-%d %H:%M') if analysis.completed_at else '-'}</p>
+                <hr>
+                {html_content}
+            </body>
+            </html>
+            """
+            pdf_bytes = HTML(string=html_full).write_pdf()
+            return send_file(
+                io.BytesIO(pdf_bytes),
+                mimetype="application/pdf",
+                as_attachment=True,
+                download_name=f"L3_Report_{analysis.id}.pdf"
+            )
+        except ImportError:
+            # 如果没有 weasyprint，回退到 markdown
+            content = analysis.report_md
+            filename = f"L3_Report_{analysis.id}.md"
+            mimetype = "text/markdown"
+    else:
+        return jsonify({"error": "不支持的格式，支持 md 或 pdf"}), 400
+
+    response = make_response(content)
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response.headers["Content-Type"] = mimetype
+    return response
+
+
+@app.route("/api/l3/history")
+@login_required
+def api_l3_history():
+    """获取用户的 L3 分析历史"""
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 10, type=int)
+
+    analyses = L3Analysis.query.filter_by(user_id=current_user.id) \
+        .order_by(L3Analysis.created_at.desc()) \
+        .paginate(page=page, per_page=per_page, error_out=False)
+
+    results = [{
+        "id": a.id,
+        "video_filename": a.video_filename,
+        "video_size_mb": a.video_size_mb,
+        "status": a.status,
+        "error_message": a.error_message,
+        "credits_used": a.credits_used,
+        "reference_video_id": a.reference_video_id,
+        "reference_video_title": a.reference_video_title,
+        "created_at": a.created_at.strftime("%Y-%m-%d %H:%M") if a.created_at else None,
+        "completed_at": a.completed_at.strftime("%Y-%m-%d %H:%M") if a.completed_at else None
+    } for a in analyses.items]
+
+    return jsonify({
+        "analyses": results,
+        "total": analyses.total,
+        "pages": analyses.pages,
+        "current_page": page
+    })
+
+
+@app.route("/api/l3/report/by-video/<video_id>")
+@login_required
+def api_l3_report_by_video(video_id):
+    """根据关联的搜索结果视频 ID 获取当前用户的 L3 报告"""
+    analysis = L3Analysis.query.filter_by(
+        user_id=current_user.id,
+        reference_video_id=video_id,
+        status='completed'
+    ).order_by(L3Analysis.created_at.desc()).first()
+
+    if not analysis:
+        return jsonify({"error": "未找到该视频的 L3 分析报告"}), 404
+
+    report_json = None
+    if analysis.report_json:
+        try:
+            report_json = json.loads(analysis.report_json)
+        except:
+            report_json = {}
+
+    return jsonify({
+        "id": analysis.id,
+        "status": analysis.status,
+        "video_filename": analysis.video_filename,
+        "video_size_mb": analysis.video_size_mb,
+        "reference_video_id": analysis.reference_video_id,
+        "reference_video_title": analysis.reference_video_title,
+        "report_md": analysis.report_md,
+        "report_json": report_json,
+        "credits_used": analysis.credits_used,
+        "created_at": analysis.created_at.strftime("%Y-%m-%d %H:%M:%S") if analysis.created_at else None,
+        "completed_at": analysis.completed_at.strftime("%Y-%m-%d %H:%M:%S") if analysis.completed_at else None
     })
 
 

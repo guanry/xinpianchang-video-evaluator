@@ -1,0 +1,35 @@
+{
+  "total_score": 90,
+  "breakdown": {
+    "hook": 24,
+    "rhythm": 23,
+    "brand": 21,
+    "conversion": 22
+  },
+  "total_shots": 180,
+  "avg_shot_duration": 0.8,
+  "shot_distribution": {
+    "特写": "35%",
+    "中景": "40%",
+    "远景": "25%"
+  },
+  "color_palette": [
+    "#0F172A",
+    "#1E3A5F",
+    "#34D399"
+  ],
+  "bpm": 128,
+  "style_tags": [
+    "Cyberpunk",
+    "Cinematic",
+    "Montage",
+    "High Contrast"
+  ],
+  "budget_level": "S",
+  "critical_review": "视听盛宴，节奏大师，但叙事稍显晦涩，需平衡艺术性与商业传达。",
+  "optimization_plan": [
+    "增加开篇主题旁白以降低理解门槛",
+    "将产品特写提前至0:15建立关联",
+    "结尾Logo前增加0.5s静帧沉淀情绪"
+  ]
+}
