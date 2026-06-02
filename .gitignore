@@ -10,6 +10,9 @@ __pycache__/
 # 运行时数据库
 data.db
 
+# 上传目录
+uploads/
+
 # 调试/临时文件
 llm_debug.log
 REQ_DEBUG.txt
