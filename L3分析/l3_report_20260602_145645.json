@@ -1,0 +1,35 @@
+{
+  "total_score": 90,
+  "breakdown": {
+    "hook": 24,
+    "rhythm": 23,
+    "brand": 22,
+    "conversion": 21
+  },
+  "total_shots": 145,
+  "avg_shot_duration": 1.05,
+  "shot_distribution": {
+    "特写": "45%",
+    "中景": "35%",
+    "远景": "20%"
+  },
+  "color_palette": [
+    "#0A192F",
+    "#00E5FF",
+    "#2ECC71"
+  ],
+  "bpm": 128,
+  "style_tags": [
+    "Cyberpunk",
+    "Music Video Style",
+    "Neon Noir",
+    "Fast Paced"
+  ],
+  "budget_level": "S",
+  "critical_review": "视听盛宴，美学满分，但叙事碎片化可能劝退部分理性消费者。",
+  "optimization_plan": [
+    "增加场景转换的逻辑钩子",
+    "插入直观的画质对比分屏",
+    "强化多语言市场的字幕设计"
+  ]
+}

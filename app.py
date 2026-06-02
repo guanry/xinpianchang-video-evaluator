@@ -929,70 +929,84 @@ def api_l3_analyze():
     db.session.add(transaction)
     db.session.commit()
 
-    # 异步执行分析（实际生产环境应使用任务队列如 Celery）
-    # 这里简化为同步执行
+    # 更新状态为处理中
     analysis.status = 'processing'
     analysis.started_at = datetime.utcnow()
     db.session.commit()
 
-    try:
-        result = analyze_video_with_qwen(filepath, industry, style)
+    # 启动后台线程进行异步分析
+    import threading
+    def run_analysis():
+        with app.app_context():
+            try:
+                print(f"[L3] 开始分析 ID={analysis.id}: {filepath}")
+                result = analyze_video_with_qwen(filepath, industry, style)
 
-        analysis.status = result.get("status", "failed")
-        analysis.report_md = result.get("report_md")
-        analysis.report_json = json.dumps(result.get("report_json", {}), ensure_ascii=False) if result.get("report_json") else None
-        analysis.error_message = result.get("error")
-        analysis.completed_at = datetime.utcnow()
-        db.session.commit()
+                # 更新分析记录
+                from models import db as db2
+                analysis_obj = L3Analysis.query.get(analysis.id)
+                analysis_obj.status = result.get("status", "failed")
+                analysis_obj.report_md = result.get("report_md")
+                analysis_obj.report_json = json.dumps(result.get("report_json", {}), ensure_ascii=False) if result.get("report_json") else None
+                analysis_obj.error_message = result.get("error")
+                analysis_obj.completed_at = datetime.utcnow()
+                db2.session.commit()
 
-        if result.get("status") == "failed":
-            # 分析失败，退款
-            credits.balance += L3_PRICE
-            credits.updated_at = datetime.utcnow()
-            refund = CreditTransaction(
-                user_id=current_user.id,
-                amount=L3_PRICE,
-                type="refund",
-                reference_id=str(analysis.id),
-                description=f"L3 分析失败退款 - {file.filename}"
-            )
-            db.session.add(refund)
-            db.session.commit()
+                if result.get("status") == "failed":
+                    # 分析失败，退款
+                    user_credits = get_or_create_user_credits(current_user.id)
+                    user_credits.balance += L3_PRICE
+                    user_credits.updated_at = datetime.utcnow()
+                    refund = CreditTransaction(
+                        user_id=current_user.id,
+                        amount=L3_PRICE,
+                        type="refund",
+                        reference_id=str(analysis.id),
+                        description=f"L3 分析失败退款 - {file.filename}"
+                    )
+                    db2.session.add(refund)
+                    db2.session.commit()
+                    print(f"[L3] 分析失败，已退款 ID={analysis.id}")
+                else:
+                    print(f"[L3] 分析完成 ID={analysis.id}")
 
-            return jsonify({
-                "error": result.get("error"),
-                "analysis_id": analysis.id,
-                "refunded": True
-            }), 500
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                from models import db as db2
+                analysis_obj = L3Analysis.query.get(analysis.id)
+                analysis_obj.status = 'failed'
+                analysis_obj.error_message = str(e)
+                analysis_obj.completed_at = datetime.utcnow()
+                db2.session.commit()
 
-        return jsonify({
-            "analysis_id": analysis.id,
-            "status": "completed",
-            "message": "分析完成"
-        })
+                # 退款
+                user_credits = get_or_create_user_credits(current_user.id)
+                user_credits.balance += L3_PRICE
+                user_credits.updated_at = datetime.utcnow()
+                refund = CreditTransaction(
+                    user_id=current_user.id,
+                    amount=L3_PRICE,
+                    type="refund",
+                    reference_id=str(analysis.id),
+                    description=f"L3 分析异常退款 - {file.filename}"
+                )
+                db2.session.add(refund)
+                db2.session.commit()
+                print(f"[L3] 分析异常，已退款 ID={analysis.id}: {str(e)}")
 
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
+    # 启动后台线程
+    thread = threading.Thread(target=run_analysis)
+    thread.daemon = True
+    thread.start()
 
-        analysis.status = 'failed'
-        analysis.error_message = str(e)
-        db.session.commit()
-
-        # 退款
-        credits.balance += L3_PRICE
-        credits.updated_at = datetime.utcnow()
-        refund = CreditTransaction(
-            user_id=current_user.id,
-            amount=L3_PRICE,
-            type="refund",
-            reference_id=str(analysis.id),
-            description=f"L3 分析异常退款 - {file.filename}"
-        )
-        db.session.add(refund)
-        db.session.commit()
-
-        return jsonify({"error": f"分析失败: {str(e)}", "refunded": True}), 500
+    # 立即返回，不等待分析完成
+    return jsonify({
+        "analysis_id": analysis.id,
+        "status": "processing",
+        "message": "分析已开始，请稍后查询结果",
+        "estimated_time": "预计需要2-5分钟，具体取决于视频大小和网络状况"
+    })
 
 
 @app.route("/api/l3/report/<int:analysis_id>")
@@ -1061,23 +1075,272 @@ def api_l3_download(analysis_id):
 
             html_content = markdown.markdown(analysis.report_md)
             html_full = f"""
-            <html>
+            <!DOCTYPE html>
+            <html lang="zh-CN">
             <head>
                 <meta charset="utf-8">
                 <style>
-                    body {{ font-family: 'Microsoft YaHei', sans-serif; padding: 40px; line-height: 1.8; }}
-                    h2 {{ border-bottom: 2px solid #7c5ce7; padding-bottom: 8px; }}
-                    h3 {{ color: #7c5ce7; }}
-                    pre {{ background: #f5f6fa; padding: 16px; border-radius: 8px; overflow-x: auto; }}
-                    code {{ background: #f5f6fa; padding: 2px 6px; border-radius: 4px; }}
+                    @page {{
+                        size: A4;
+                        margin: 2.5cm 2cm;
+                        @top-left {{
+                            content: "C-Eye Pro";
+                            font-size: 10px;
+                            color: #9b7ef2;
+                            font-weight: 600;
+                        }}
+                        @top-right {{
+                            content: "L3 深度分析报告";
+                            font-size: 10px;
+                            color: #666;
+                        }}
+                        @bottom-center {{
+                            content: "第 " counter(page) " 页";
+                            font-size: 9px;
+                            color: #999;
+                        }}
+                    }}
+
+                    * {{
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }}
+
+                    body {{
+                        font-family: 'Microsoft YaHei', 'PingFang SC', -apple-system, sans-serif;
+                        font-size: 11pt;
+                        line-height: 1.8;
+                        color: #1a1a2e;
+                    }}
+
+                    /* 封面区域 */
+                    .cover-page {{
+                        page-break-after: always;
+                        text-align: center;
+                        padding-top: 120px;
+                    }}
+
+                    .cover-logo {{
+                        font-size: 32pt;
+                        font-weight: 700;
+                        color: #7c5ce7;
+                        margin-bottom: 60px;
+                        letter-spacing: -1px;
+                    }}
+
+                    .cover-title {{
+                        font-size: 24pt;
+                        font-weight: 700;
+                        color: #1a1a2e;
+                        margin-bottom: 30px;
+                        line-height: 1.4;
+                    }}
+
+                    .cover-meta {{
+                        margin-top: 80px;
+                        padding: 30px;
+                        background: linear-gradient(135deg, #f5f6fa 0%, #e8eaf6 100%);
+                        border-radius: 12px;
+                        display: inline-block;
+                    }}
+
+                    .cover-meta-item {{
+                        margin: 12px 0;
+                        font-size: 11pt;
+                        color: #555;
+                    }}
+
+                    .cover-meta-item strong {{
+                        color: #7c5ce7;
+                        margin-left: 8px;
+                    }}
+
+                    /* 内容区域 */
+                    .content {{
+                        padding-top: 40px;
+                    }}
+
+                    h1 {{
+                        font-size: 20pt;
+                        font-weight: 700;
+                        color: #7c5ce7;
+                        border-bottom: 3px solid #7c5ce7;
+                        padding-bottom: 12px;
+                        margin-bottom: 24px;
+                        margin-top: 40px;
+                    }}
+
+                    h2 {{
+                        font-size: 16pt;
+                        font-weight: 700;
+                        color: #7c5ce7;
+                        margin-top: 36px;
+                        margin-bottom: 16px;
+                        padding-left: 12px;
+                        border-left: 4px solid #7c5ce7;
+                    }}
+
+                    h3 {{
+                        font-size: 13pt;
+                        font-weight: 700;
+                        color: #9b7ef2;
+                        margin-top: 24px;
+                        margin-bottom: 12px;
+                    }}
+
+                    p {{
+                        margin-bottom: 12px;
+                        text-align: justify;
+                    }}
+
+                    /* 列表样式 */
+                    ul, ol {{
+                        margin-left: 24px;
+                        margin-bottom: 16px;
+                    }}
+
+                    li {{
+                        margin: 8px 0;
+                        line-height: 1.6;
+                    }}
+
+                    /* 强调框 */
+                    blockquote {{
+                        margin: 20px 0;
+                        padding: 16px 20px;
+                        background: linear-gradient(135deg, #f5f6fa 0%, #e8eaf6 100%);
+                        border-left: 4px solid #7c5ce7;
+                        border-radius: 8px;
+                    }}
+
+                    blockquote p {{
+                        margin: 0;
+                        color: #333;
+                    }}
+
+                    /* 代码块 */
+                    pre {{
+                        background: #f5f6fa;
+                        border: 1px solid #e2e4eb;
+                        border-radius: 8px;
+                        padding: 16px;
+                        overflow-x: auto;
+                        margin: 16px 0;
+                        font-size: 10pt;
+                        line-height: 1.5;
+                    }}
+
+                    code {{
+                        background: #f5f6fa;
+                        padding: 2px 6px;
+                        border-radius: 4px;
+                        font-size: 10pt;
+                        color: #7c5ce7;
+                    }}
+
+                    pre code {{
+                        background: none;
+                        padding: 0;
+                    }}
+
+                    /* 表格 */
+                    table {{
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin: 20px 0;
+                        font-size: 10pt;
+                    }}
+
+                    th {{
+                        background: #7c5ce7;
+                        color: white;
+                        padding: 12px;
+                        text-align: left;
+                        font-weight: 600;
+                    }}
+
+                    td {{
+                        padding: 12px;
+                        border-bottom: 1px solid #e2e4eb;
+                    }}
+
+                    tr:nth-child(even) td {{
+                        background: #f9fafb;
+                    }}
+
+                    /* 高亮框 */
+                    .highlight-box {{
+                        margin: 24px 0;
+                        padding: 20px;
+                        border-radius: 12px;
+                        border: 1px solid #7c5ce7;
+                        background: linear-gradient(135deg, rgba(124,92,231,0.05) 0%, rgba(155,126,242,0.08) 100%);
+                    }}
+
+                    .highlight-box-title {{
+                        font-weight: 700;
+                        color: #7c5ce7;
+                        margin-bottom: 12px;
+                        font-size: 12pt;
+                    }}
+
+                    /* 分隔线 */
+                    hr {{
+                        border: none;
+                        height: 1px;
+                        background: linear-gradient(90deg, transparent, #7c5ce7, transparent);
+                        margin: 32px 0;
+                    }}
+
+                    /* 页脚 */
+                    .footer {{
+                        margin-top: 60px;
+                        padding-top: 20px;
+                        border-top: 1px solid #e2e4eb;
+                        text-align: center;
+                        color: #999;
+                        font-size: 9pt;
+                    }}
                 </style>
             </head>
             <body>
-                <h1>L3 深度分析报告</h1>
-                <p><strong>视频:</strong> {analysis.video_filename}</p>
-                <p><strong>分析时间:</strong> {analysis.completed_at.strftime('%Y-%m-%d %H:%M') if analysis.completed_at else '-'}</p>
-                <hr>
-                {html_content}
+                <!-- 封面 -->
+                <div class="cover-page">
+                    <div class="cover-logo">C-Eye Pro</div>
+                    <div class="cover-title">L3 深度拉片分析报告</div>
+
+                    <div class="cover-meta">
+                        <div class="cover-meta-item">
+                            📹 视频文件: <strong>{analysis.video_filename}</strong>
+                        </div>
+                        <div class="cover-meta-item">
+                            📊 文件大小: <strong>{analysis.video_size_mb:.1f} MB</strong>
+                        </div>
+                        <div class="cover-meta-item">
+                            🕐 分析时间: <strong>{analysis.completed_at.strftime('%Y-%m-%d %H:%M') if analysis.completed_at else '-'}</strong>
+                        </div>
+                        <div class="cover-meta-item">
+                            🤖 AI 模型: <strong>Qwen3.5-Omni-Plus</strong>
+                        </div>
+                    </div>
+
+                    <div class="footer" style="margin-top: 120px;">
+                        本报告由 C-Eye Pro AI 分析引擎自动生成<br>
+                        报告生成时间: {analysis.created_at.strftime('%Y-%m-%d %H:%M:%S') if analysis.created_at else '-'}
+                    </div>
+                </div>
+
+                <!-- 正文内容 -->
+                <div class="content">
+                    {html_content}
+                </div>
+
+                <div class="footer">
+                    <hr style="margin-bottom: 16px;">
+                    <strong>C-Eye Pro</strong> - AI驱动的广告创意评估平台<br>
+                    © 2024 C-Eye Pro. All rights reserved.
+                </div>
             </body>
             </html>
             """
